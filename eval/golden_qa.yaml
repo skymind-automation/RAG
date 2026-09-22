@@ -1,0 +1,319 @@
+# Golden Q&A set for the service-advisor retrieval path.
+#
+# These are written as advisors actually phrase things: symptom-first, informal,
+# customer's words rather than technician's, frequently with no part number and
+# no code. Several are deliberately sloppy (typos, missing punctuation, "it"
+# with no antecedent) because that is what arrives in the box.
+#
+# This file grades RETRIEVAL ONLY — did the right evidence come back, and how
+# high. It says nothing about answer quality. That separation is the point:
+# when an answer is wrong you need to know whether retrieval missed the
+# document or the model fumbled a document it was given.
+#
+# Each case declares `relevant`: matchers, any of which makes a chunk relevant.
+#   tsb_number      exact bulletin number
+#   source_file     substring of the source path
+#   heading         case-insensitive substring of the chunk's heading breadcrumb
+#   contains        case-insensitive substring of the chunk body
+#   doc_type        manual | tsb | dtc_table
+#   dtc_code        a DTC table row the lookup returned (add `prefix: true` to
+#                   match a code family). DTC rows are evidence in their own
+#                   right for lookup queries -- they are deliberately not
+#                   chunked, so a chunk matcher can never grade them.
+# A case may also assert `expect_route` and `expect_dtc`.
+#
+# `shape` mirrors the three dominant query shapes, so the report breaks down by
+# shape — an aggregate number hides that lookup is near-perfect while
+# bulletin-matching is where the work is.
+
+meta:
+  corpus: data/
+  corpus_is_synthetic: true
+  notes: >
+    Measured against the representative sample corpus. Re-baseline every number
+    here after the real OEM corpus lands; these values describe the harness
+    working, not production retrieval quality.
+
+cases:
+
+  # ---------------------------------------------------------------------
+  # Shape 1: lookup — exact code match, not semantic
+  # ---------------------------------------------------------------------
+
+  - id: lookup-p0299-cascadia
+    question: "What's DTC P0299 on a Cascadia?"
+    shape: lookup
+    vehicle_context: {model: Freightliner Cascadia, model_year: 2022}
+    expect_route: dtc_exact
+    expect_dtc: [P0299]
+    relevant:
+      - tsb_number: "23-0412"
+
+  - id: lookup-p0299-bare
+    question: "p0299"
+    shape: lookup
+    vehicle_context: {}
+    expect_route: dtc_exact
+    expect_dtc: [P0299]
+    relevant:
+      - tsb_number: "23-0412"
+    notes: Lowercase, no context, no question. Very common in practice.
+
+  - id: lookup-p0420-meaning
+    question: "customer wants to know what P0420 means"
+    shape: lookup
+    vehicle_context: {model: Ford Transit, model_year: 2022}
+    expect_route: dtc_exact
+    expect_dtc: [P0420]
+    relevant:
+      - dtc_code: P0420
+
+  - id: lookup-two-codes
+    question: "scan tool pulled P0299 and P2263, are they related"
+    shape: lookup
+    vehicle_context: {model: Freightliner Cascadia, model_year: 2021}
+    expect_route: dtc_exact
+    expect_dtc: [P0299, P2263]
+    relevant:
+      - tsb_number: "23-0412"
+
+  - id: lookup-p0307-family-fallback
+    question: "what is P0307"
+    shape: lookup
+    vehicle_context: {model: Ford Transit, model_year: 2022}
+    expect_route: dtc_exact
+    relevant:
+      - dtc_code: P030
+        prefix: true
+    notes: >
+      P0307 is not in the table. The family fallback should return the P030x
+      misfire family rather than nothing — the causes are what the advisor needs.
+
+  - id: lookup-def-quality-code
+    question: "P207F keeps coming back after we filled the DEF"
+    shape: lookup
+    vehicle_context: {model: Freightliner Cascadia, model_year: 2023}
+    expect_route: dtc_exact
+    expect_dtc: [P207F]
+    relevant:
+      - tsb_number: "23-0877"
+
+  - id: lookup-u0140-promaster
+    question: "U0140 on a promaster, is that a module failure?"
+    shape: lookup
+    vehicle_context: {model: RAM ProMaster, model_year: 2021}
+    expect_route: dtc_exact
+    expect_dtc: [U0140]
+    relevant:
+      - tsb_number: "22-1533"
+
+  # ---------------------------------------------------------------------
+  # Shape 2: procedural / interval — structured table + narrative
+  # ---------------------------------------------------------------------
+
+  - id: interval-60k-transit
+    question: "What's due at 60k miles for this one?"
+    shape: interval
+    vehicle_context: {model: Ford Transit, model_year: 2022, mileage: 60000}
+    relevant:
+      - heading: "60,000 Mile Service"
+      - heading: "Interval Table"
+    notes: Advisor says "60k"; the manual says "60,000 mi". Vocabulary gap.
+
+  - id: interval-60k-spelled-out
+    question: "customer is at 60,000 miles what does the service include"
+    shape: interval
+    vehicle_context: {model: Ford Transit, model_year: 2023}
+    relevant:
+      - heading: "60,000 Mile Service"
+      - heading: "Interval Table"
+
+  - id: interval-30k-transit
+    question: "whats in the 30k service"
+    shape: interval
+    vehicle_context: {model: Ford Transit, model_year: 2022, mileage: 30000}
+    relevant:
+      - heading: "30,000 Mile Service"
+      - heading: "Interval Table"
+
+  - id: interval-severe-duty
+    question: "does a delivery van on city routes need the severe schedule"
+    shape: interval
+    vehicle_context: {model: Ford Transit, model_year: 2022}
+    relevant:
+      - heading: "Which Schedule Applies"
+
+  - id: interval-trans-fluid-spec
+    question: "what transmission fluid does it take"
+    shape: interval
+    vehicle_context: {model: Ford Transit, model_year: 2022}
+    relevant:
+      - contains: "Mercon ULV"
+
+  - id: interval-oil-capacity
+    question: "how much oil for the 3.5 gas engine"
+    shape: interval
+    vehicle_context: {model: Ford Transit, model_year: 2022}
+    relevant:
+      - heading: "Fluid Capacities"
+      - contains: "6.1 L"
+
+  - id: procedure-caliper-torque
+    question: "torque spec for front caliper guide pin bolts"
+    shape: interval
+    vehicle_context: {model: Ford Transit, model_year: 2022}
+    relevant:
+      - heading: "Torque Specifications - Front Brake"
+
+  - id: procedure-rear-anchor-torque
+    question: "rear brake caliper anchor bracket torque"
+    shape: interval
+    vehicle_context: {model: Ford Transit, model_year: 2022}
+    relevant:
+      - heading: "Torque Specifications - Rear Brake"
+      - heading: "Rear Brake Pad Replacement"
+
+  - id: procedure-pad-service-limit
+    question: "how thin can the front pads get before we have to replace them"
+    shape: interval
+    vehicle_context: {model: Ford Transit, model_year: 2022}
+    relevant:
+      - heading: "Service Limits - Front Brake"
+
+  - id: procedure-brake-fluid-interval
+    question: "how often does brake fluid need doing"
+    shape: interval
+    vehicle_context: {model: Ford Transit, model_year: 2023}
+    relevant:
+      - heading: "Brake Fluid Service"
+      - heading: "Interval Table"
+
+  - id: procedure-parked-regen
+    question: "driver needs to do a parked regen, what do we tell him"
+    shape: interval
+    vehicle_context: {model: Freightliner Cascadia, model_year: 2022}
+    relevant:
+      - heading: "Parked Regeneration Procedure"
+
+  - id: procedure-parasitic-draw-spec
+    question: "whats an acceptable parasitic draw on a promaster"
+    shape: interval
+    vehicle_context: {model: RAM ProMaster, model_year: 2021}
+    relevant:
+      - heading: "Parasitic Draw Testing"
+      - tsb_number: "22-1533"
+
+  - id: procedure-battery-registration
+    question: "do we have to register a new battery on these"
+    shape: interval
+    vehicle_context: {model: RAM ProMaster, model_year: 2020}
+    relevant:
+      - heading: "Battery Replacement and Registration"
+
+  # ---------------------------------------------------------------------
+  # Shape 3: bulletin / known-issue — fuzzy symptom to structured bulletin
+  # ---------------------------------------------------------------------
+
+  - id: tsb-cold-start-shudder
+    question: "Customer says shudder on cold start, any TSBs?"
+    shape: bulletin
+    vehicle_context: {model: Ford Transit, model_year: 2022}
+    relevant:
+      - tsb_number: "22-2107"
+
+  - id: tsb-shudder-customer-words
+    question: "says it feels like driving over rumble strips in the morning, goes away when warm"
+    shape: bulletin
+    vehicle_context: {model: Ford Transit, model_year: 2022}
+    relevant:
+      - tsb_number: "22-2107"
+    notes: >
+      The customer's own phrasing, which appears verbatim in the bulletin's
+      symptom section. This is the case embeddings should win outright.
+
+  - id: tsb-brake-squeal
+    question: "brakes squeal at low speed, pads look fine"
+    shape: bulletin
+    vehicle_context: {model: Ford Transit, model_year: 2021}
+    relevant:
+      - tsb_number: "21-0918"
+
+  - id: tsb-squeal-morning-damp
+    question: "squeaking when braking first thing, worse when its damp"
+    shape: bulletin
+    vehicle_context: {model: Ford Transit, model_year: 2022}
+    relevant:
+      - tsb_number: "21-0918"
+
+  - id: tsb-weekend-no-start
+    question: "battery keeps dying over the weekend, already replaced it twice"
+    shape: bulletin
+    vehicle_context: {model: RAM ProMaster, model_year: 2021}
+    relevant:
+      - tsb_number: "22-1533"
+
+  - id: tsb-turbo-power-loss
+    question: "losing power on grades and derating, thinking turbo"
+    shape: bulletin
+    vehicle_context: {model: Freightliner Cascadia, model_year: 2022}
+    relevant:
+      - tsb_number: "23-0412"
+
+  - id: tsb-def-fleet-pattern
+    question: "three of our trucks got DEF quality faults this week"
+    shape: bulletin
+    vehicle_context: {model: Freightliner Cascadia, model_year: 2022}
+    relevant:
+      - tsb_number: "23-0877"
+
+  - id: tsb-def-frozen
+    question: "customer says the DEF froze overnight, is that a fault"
+    shape: bulletin
+    vehicle_context: {model: Freightliner Cascadia, model_year: 2023}
+    relevant:
+      - contains: "freezes at -11"
+      - heading: "DEF Quality and Contamination"
+    notes: >
+      Correct answer is "that is normal". Tests that the manual section wins
+      over the DEF fault bulletin, which is the tempting wrong match.
+
+  - id: tsb-dpf-flashing-light
+    question: "dpf light flashing what does the driver do"
+    shape: bulletin
+    vehicle_context: {model: Freightliner Cascadia, model_year: 2022}
+    relevant:
+      - heading: "Reading the Dash Indications"
+      - heading: "Parked Regeneration Procedure"
+
+  # ---------------------------------------------------------------------
+  # Applicability and negative cases — the filter doing its job
+  # ---------------------------------------------------------------------
+
+  - id: applicability-wrong-year
+    question: "shudder on cold start"
+    shape: applicability
+    vehicle_context: {model: Ford Transit, model_year: 2019}
+    expect_no_results_matching:
+      - tsb_number: "22-2107"
+    notes: >
+      TSB 22-2107 applies to 2021-2023 only. A 2019 vehicle must not surface
+      it. Returning an inapplicable bulletin is worse than returning nothing —
+      it produces a confident, wrong, billable recommendation.
+
+  - id: applicability-wrong-model
+    question: "brake squeal bulletin"
+    shape: applicability
+    vehicle_context: {model: RAM ProMaster, model_year: 2021}
+    expect_no_results_matching:
+      - tsb_number: "21-0918"
+    notes: The Transit brake squeal TSB must not appear for a ProMaster.
+
+  - id: negative-out-of-scope
+    question: "what is the warranty claim procedure for a windshield chip"
+    shape: negative
+    vehicle_context: {model: Ford Transit, model_year: 2022}
+    expect_insufficient: true
+    notes: >
+      Nothing in the corpus covers this. The service should report low
+      confidence so the caller says "insufficient documentation" rather than
+      letting a model invent a procedure.
