@@ -1,0 +1,73 @@
+name: platform
+
+on:
+  push:
+    paths: ["platform/**", ".github/workflows/platform.yml"]
+  pull_request:
+    paths: ["platform/**", ".github/workflows/platform.yml"]
+
+concurrency:
+  group: platform-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: platform
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: itsm
+          POSTGRES_PASSWORD: itsm
+          POSTGRES_DB: itsm
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U itsm" --health-interval 5s --health-timeout 5s --health-retries 20
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 5s --health-timeout 3s --health-retries 20
+    env:
+      DATABASE_URL: postgresql://itsm:itsm@localhost:5432/itsm
+      DIRECT_DATABASE_URL: postgresql://itsm:itsm@localhost:5432/itsm
+      TEST_DATABASE_URL: postgresql://itsm:itsm@localhost:5432/itsm_test
+      E2E_DATABASE_URL: postgresql://itsm:itsm@localhost:5432/itsm_e2e
+      AUTH_SECRET: ci-only-secret-0123456789abcdef0123456789abcdef
+      AUTH_URL: http://localhost:3000
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: platform/package-lock.json
+      - name: Create test databases
+        run: |
+          PGPASSWORD=itsm psql -h localhost -U itsm -d itsm -c "CREATE DATABASE itsm_test" -c "CREATE DATABASE itsm_e2e"
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run test:unit
+      - run: npm run test:integration
+      - name: Schema drift check
+        run: |
+          PGPASSWORD=itsm psql -h localhost -U itsm -d itsm -c "CREATE DATABASE itsm_shadow"
+          npx prisma migrate diff --from-migrations prisma/migrations --to-schema-datamodel prisma/schema.prisma \
+            --shadow-database-url postgresql://itsm:itsm@localhost:5432/itsm_shadow --exit-code
+      - run: npm run build
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e
+        env:
+          CI: "1"
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: platform/playwright-report
+          retention-days: 7
