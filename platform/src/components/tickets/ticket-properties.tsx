@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { PublicError } from "@/lib/errors";
 import { useMutation } from "@/hooks/use-mutation";
+import { formatWallDate, wallDateOf } from "@/lib/time/zoned";
 import { TICKET_TYPES } from "@/lib/validation/schemas";
 import { PriorityBadge, TICKET_TYPE_LABELS } from "./badges";
 import { CustomFieldInput, fieldsForType, type CustomFieldDef, type CustomFieldFormValue } from "./custom-field-input";
@@ -82,6 +83,8 @@ export function TicketProperties({
   const date = (iso: string | null) =>
     iso ? new Date(iso).toLocaleString("en-US", { timeZone: timezone, dateStyle: "medium", timeStyle: "short" }) : "—";
   const fields = fieldsForType(options.customFields, ticket.type);
+  // Due dates are calendar days in the organization's zone, not UTC.
+  const dueLocal = ticket.dueAt ? formatWallDate(wallDateOf(new Date(ticket.dueAt), timezone)) : "";
 
   return (
     <section
@@ -211,11 +214,10 @@ export function TicketProperties({
               id="p-due"
               type="date"
               className="h-7"
-              defaultValue={ticket.dueAt ? ticket.dueAt.slice(0, 10) : ""}
+              defaultValue={dueLocal}
               onBlur={(e) => {
                 const v = e.target.value;
-                const current = ticket.dueAt ? ticket.dueAt.slice(0, 10) : "";
-                if (v !== current) void update({ dueAt: v || null });
+                if (v !== dueLocal) void update({ dueAt: v || null });
               }}
             />
           ) : (

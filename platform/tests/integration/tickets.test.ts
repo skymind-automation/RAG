@@ -12,6 +12,7 @@ import {
   getTicket,
   listTickets,
   transitionTicket,
+  updateTicket,
 } from "@/server/tickets/ticket-service";
 import { authOf, joinAs, makeOrg, resetDb, statusByKey } from "./helpers";
 
@@ -150,5 +151,21 @@ describe("ticket domain", () => {
     expect(seen).toHaveLength(7);
     expect(new Set(seen).size).toBe(7);
     expect(seen[0]).toBe("IT-000007");
+  });
+});
+
+describe("due dates", () => {
+  it("interprets a calendar date as the end of that day in the organization's zone", async () => {
+    await resetDb();
+    const owner = await makeOrg("Chicago IT", "chi");
+    await prisma.organization.update({ where: { id: owner.organization.id }, data: { timezone: "America/Chicago" } });
+    const ctx = await resolveOrgContext(authOf(owner.user), "chi");
+    const t = await createTicket(ctx, { type: "TASK", title: "Due soon", dueAt: "2026-10-05" });
+    expect(t.dueAt?.toISOString()).toBe("2026-10-06T04:59:59.999Z");
+    await updateTicket(ctx, { ticketId: t.id, expectedVersion: 1, dueAt: "2026-12-24" }); // CST, UTC-6
+    expect((await getTicket(ctx, t.id)).dueAt?.toISOString()).toBe("2026-12-25T05:59:59.999Z");
+    await expect(updateTicket(ctx, { ticketId: t.id, expectedVersion: 2, dueAt: "2026-02-30" })).rejects.toBeInstanceOf(
+      ValidationError,
+    );
   });
 });

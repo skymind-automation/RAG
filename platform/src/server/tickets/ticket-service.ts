@@ -2,6 +2,7 @@ import type { Prisma, StatusCategory } from "@prisma/client";
 import { scopedDb, type ScopedTx } from "@/lib/db/tenant";
 import { AuthorizationError, ConflictError, NotFoundError, ValidationError } from "@/lib/errors";
 import { roleHas } from "@/lib/permissions";
+import { endOfWallDay, parseWallDate } from "@/lib/time/zoned";
 import { parseInput } from "@/lib/validation/parse";
 import {
   addCommentSchema,
@@ -49,6 +50,14 @@ export const ticketListSelect = {
 } satisfies Prisma.TicketSelect;
 
 export type TicketListItem = Prisma.TicketGetPayload<{ select: typeof ticketListSelect }>;
+
+/** Calendar dates mean "end of that day" in the organization's zone. */
+function resolveDueAt(value: string | Date | null | undefined, timeZone: string): Date | null | undefined {
+  if (value === undefined || value === null || value instanceof Date) return value;
+  const wall = parseWallDate(value);
+  if (!wall) throw new ValidationError("Some fields are invalid.", { dueAt: ["Use a date like 2026-10-05."] });
+  return endOfWallDay(wall, timeZone);
+}
 
 async function activeCustomFieldDefinitions(tx: ScopedTx) {
   return tx.customFieldDefinition.findMany({
@@ -137,7 +146,7 @@ export async function createTicket(ctx: OrgContext, raw: unknown) {
         assigneeId: input.assigneeId ?? null,
         createdById: ctx.user.id,
         source,
-        dueAt: input.dueAt ?? null,
+        dueAt: resolveDueAt(input.dueAt, ctx.organization.timezone) ?? null,
         customFields,
       },
       select: ticketListSelect,
@@ -278,8 +287,9 @@ export async function updateTicket(ctx: OrgContext, raw: unknown) {
       data.teamId = input.teamId;
       changed.push("team");
     }
-    if (input.dueAt !== undefined && input.dueAt?.getTime() !== ticket.dueAt?.getTime()) {
-      data.dueAt = input.dueAt;
+    const dueAt = resolveDueAt(input.dueAt, ctx.organization.timezone);
+    if (dueAt !== undefined && dueAt?.getTime() !== ticket.dueAt?.getTime()) {
+      data.dueAt = dueAt;
       changed.push("due date");
     }
     // Re-validate custom fields when they change *or* the type changes
