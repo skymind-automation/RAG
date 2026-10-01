@@ -54,6 +54,8 @@ model User {
   createdTickets   Ticket[]                 @relation("TicketCreatedBy")
   comments         Comment[]
   watching         TicketWatcher[]
+  attachments      Attachment[]
+  commentMentions  CommentMention[]
 
   @@map("users")
 }
@@ -89,6 +91,10 @@ model Organization {
   tickets             Ticket[]
   comments            Comment[]
   watchers            TicketWatcher[]
+  ticketRelations     TicketRelation[]
+  attachments         Attachment[]
+  commentMentions     CommentMention[]
+  customFields        CustomFieldDefinition[]
 
   @@map("organizations")
 }
@@ -123,11 +129,14 @@ model OrganizationMembership {
   teams        TeamMembership[]
 
   // Back-relations for the composite tenant-integrity FKs on tickets etc.
-  ticketsAsRequester Ticket[]        @relation("TicketRequesterMembership")
-  ticketsAsAssignee  Ticket[]        @relation("TicketAssigneeMembership")
-  ticketsAsCreator   Ticket[]        @relation("TicketCreatorMembership")
-  comments           Comment[]       @relation("CommentAuthorMembership")
-  watching           TicketWatcher[] @relation("WatcherMembership")
+  ticketsAsRequester Ticket[]         @relation("TicketRequesterMembership")
+  ticketsAsAssignee  Ticket[]         @relation("TicketAssigneeMembership")
+  ticketsAsCreator   Ticket[]         @relation("TicketCreatorMembership")
+  comments           Comment[]        @relation("CommentAuthorMembership")
+  watching           TicketWatcher[]  @relation("WatcherMembership")
+  relationsCreated   TicketRelation[] @relation("RelationCreatorMembership")
+  attachments        Attachment[]     @relation("AttachmentUploaderMembership")
+  mentions           CommentMention[] @relation("MentionMembership")
 
   /// A removed member keeps their row (history, FKs from tickets) with
   /// status REMOVED; re-inviting reactivates the same row.
@@ -431,6 +440,9 @@ model Ticket {
   createdByMembership OrganizationMembership  @relation("TicketCreatorMembership", fields: [organizationId, createdById], references: [organizationId, userId], onDelete: Restrict, map: "tickets_org_creator_membership_fkey")
   comments            Comment[]
   watchers            TicketWatcher[]
+  relationsOut        TicketRelation[]        @relation("RelationSource")
+  relationsIn         TicketRelation[]        @relation("RelationTarget")
+  attachments         Attachment[]
 
   @@unique([organizationId, key])
   @@unique([organizationId, id])
@@ -459,7 +471,10 @@ model Comment {
   ticket           Ticket                 @relation(fields: [organizationId, ticketId], references: [organizationId, id], onDelete: Cascade)
   author           User                   @relation(fields: [authorId], references: [id], onDelete: Restrict)
   authorMembership OrganizationMembership @relation("CommentAuthorMembership", fields: [organizationId, authorId], references: [organizationId, userId], onDelete: Restrict, map: "comments_org_author_membership_fkey")
+  mentions         CommentMention[]
+  attachments      Attachment[]
 
+  @@unique([organizationId, id])
   @@index([organizationId, ticketId, createdAt])
   @@map("comments")
 }
@@ -479,4 +494,140 @@ model TicketWatcher {
   @@unique([ticketId, userId])
   @@index([organizationId, userId])
   @@map("ticket_watchers")
+}
+
+// ─────────────────────────────────────────────────── ticket collaboration ──
+
+enum TicketRelationType {
+  RELATES_TO
+  DUPLICATES
+  BLOCKS
+  CAUSED_BY
+}
+
+/// Directed link between two tickets of the same organization. The inverse
+/// reading ("is blocked by", "is duplicated by") is derived for display.
+model TicketRelation {
+  id             String             @id @default(cuid())
+  organizationId String
+  sourceTicketId String
+  targetTicketId String
+  type           TicketRelationType
+  createdById    String
+  createdAt      DateTime           @default(now())
+
+  organization        Organization           @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  source              Ticket                 @relation("RelationSource", fields: [organizationId, sourceTicketId], references: [organizationId, id], onDelete: Cascade)
+  target              Ticket                 @relation("RelationTarget", fields: [organizationId, targetTicketId], references: [organizationId, id], onDelete: Cascade)
+  createdByMembership OrganizationMembership @relation("RelationCreatorMembership", fields: [organizationId, createdById], references: [organizationId, userId], onDelete: Restrict)
+
+  @@unique([sourceTicketId, targetTicketId, type])
+  @@index([organizationId, targetTicketId])
+  @@map("ticket_relations")
+}
+
+enum CommentVisibilityMirror {
+  PUBLIC
+  INTERNAL
+}
+
+enum AttachmentStatus {
+  /// Row created and upload URL issued; object not yet confirmed.
+  PENDING_UPLOAD
+  /// Confirmed; waiting for the malware scanner (when one is configured).
+  PENDING_SCAN
+  AVAILABLE
+  QUARANTINED
+  DELETED
+}
+
+enum ScanStatus {
+  NOT_SCANNED
+  SKIPPED
+  CLEAN
+  INFECTED
+}
+
+/// Metadata for a file in object storage. Bytes never pass through the
+/// database; uploads and downloads use short-lived presigned URLs issued only
+/// after authorization. The storage key embeds the organization id.
+model Attachment {
+  id             String                  @id @default(cuid())
+  organizationId String
+  ticketId       String
+  /// Set when the file is attached to a comment; visibility follows it.
+  commentId      String?
+  /// INTERNAL attachments are never shown to callers without tickets.read_internal.
+  visibility     CommentVisibilityMirror @default(PUBLIC)
+  storageKey     String                  @unique
+  fileName       String
+  contentType    String
+  sizeBytes      Int
+  status         AttachmentStatus        @default(PENDING_UPLOAD)
+  scanStatus     ScanStatus              @default(NOT_SCANNED)
+  uploadedById   String
+  createdAt      DateTime                @default(now())
+  updatedAt      DateTime                @updatedAt
+  deletedAt      DateTime?
+
+  organization       Organization           @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  ticket             Ticket                 @relation(fields: [organizationId, ticketId], references: [organizationId, id], onDelete: Restrict)
+  comment            Comment?               @relation(fields: [organizationId, commentId], references: [organizationId, id], onDelete: Restrict)
+  uploadedBy         User                   @relation(fields: [uploadedById], references: [id], onDelete: Restrict)
+  uploaderMembership OrganizationMembership @relation("AttachmentUploaderMembership", fields: [organizationId, uploadedById], references: [organizationId, userId], onDelete: Restrict)
+
+  @@unique([organizationId, id])
+  @@index([organizationId, ticketId, createdAt])
+  @@map("attachments")
+}
+
+/// Who a comment @mentions. Validated to be active members who can read the
+/// comment (internal notes can only mention staff). Drives notifications (Phase 4).
+model CommentMention {
+  id             String   @id @default(cuid())
+  organizationId String
+  commentId      String
+  userId         String
+  createdAt      DateTime @default(now())
+
+  organization Organization           @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  comment      Comment                @relation(fields: [organizationId, commentId], references: [organizationId, id], onDelete: Cascade)
+  user         User                   @relation(fields: [userId], references: [id], onDelete: Restrict)
+  membership   OrganizationMembership @relation("MentionMembership", fields: [organizationId, userId], references: [organizationId, userId], onDelete: Restrict)
+
+  @@unique([commentId, userId])
+  @@index([organizationId, userId, createdAt])
+  @@map("comment_mentions")
+}
+
+enum CustomFieldType {
+  TEXT
+  NUMBER
+  SELECT
+  DATE
+  CHECKBOX
+}
+
+/// Organization-defined ticket field. Values live in Ticket.customFields keyed
+/// by `key` and are validated against these definitions on every write.
+model CustomFieldDefinition {
+  id             String          @id @default(cuid())
+  organizationId String
+  key            String
+  label          String
+  type           CustomFieldType
+  /// SELECT options: string[].
+  options        Json            @default("[]")
+  required       Boolean         @default(false)
+  /// Empty = applies to every ticket type.
+  ticketTypes    TicketType[]    @default([])
+  position       Int             @default(0)
+  archivedAt     DateTime?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  @@unique([organizationId, key])
+  @@map("custom_field_definitions")
 }
