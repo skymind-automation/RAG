@@ -4,7 +4,7 @@ Multi-organization IT service management (incidents, requests, problems,
 changes, tasks) with a tenant-isolated AI/RAG layer, built on Next.js 15,
 PostgreSQL + pgvector, Prisma, Auth.js and Redis.
 
-> **Status: Phase 1 (Foundation) and Phase 2 (Core ITSM) complete.**
+> **Status: Phases 1–3 complete (Foundation, Core ITSM, Work Management).**
 > What exists is built and tested end to end. Everything else in the
 > [roadmap](#roadmap) is designed for but not built. The sidebar shows planned
 > areas as disabled "Soon" items rather than dead links.
@@ -42,7 +42,7 @@ Deep dives live in [`docs/`](docs): [architecture](docs/architecture.md),
 | Immutable audit log (DB-enforced) with UI | `src/server/audit`, `/o/<slug>/audit` |
 | Prisma migrations with DB-level tenant FKs | `prisma/` |
 | Docker Compose (Postgres+pgvector, Redis, migrations, app) | `docker-compose.yml` |
-| Automated isolation/authz tests | `tests/` (38 unit, 88 integration, 14 E2E) |
+| Automated isolation/authz tests | `tests/` (48 unit, 107 integration, 19 E2E) |
 | Seed: 2 orgs, 12 users, all roles, 5 teams, 36 tickets, custom fields, links, mentions | `prisma/seed/seed.ts` |
 | Authenticated dashboard | `/o/<slug>` |
 
@@ -61,6 +61,16 @@ Deep dives live in [`docs/`](docs): [architecture](docs/architecture.md),
 | Related tickets (relates to, duplicates, blocks, caused by) | `relation-service.ts` |
 | Activity timeline merged from comments and the audit log, filtered per audience | `timeline-service.ts` |
 | Ticket list with URL-driven filters (state, assignee, priority, type, team, search) | `/tickets` |
+
+**Phase 3: Work management**
+
+| Capability | Where |
+| --- | --- |
+| My Work: assigned, today, this week, overdue, backlog (unassigned in my teams), watching, plus logged time | `my-work-service.ts`, `/my-work` |
+| Calendar math in the organization's time zone (DST-safe); date-only due dates mean end of that local day | `lib/time/zoned.ts` ([ADR-0014](docs/decisions/0014-calendar-math-in-organization-time-zone.md)) |
+| Kanban board by status category, filters, grouping by assignee or priority | `board-service.ts`, `/boards` |
+| Drag-and-drop (pointer), explicit keyboard moving, "Move to" menu; optimistic updates with rollback and server reconciliation | `kanban-board.tsx` ([ADR-0013](docs/decisions/0013-kanban-columns-and-moves.md)) |
+| Time tracking: start/stop timer (one running per user, DB-enforced), switch, manual entries, billable, 24 h cap, live sidebar timer | `time-service.ts`, ticket Time panel ([ADR-0015](docs/decisions/0015-time-tracking-invariants.md)) |
 
 ## Quick start
 
@@ -227,7 +237,11 @@ cannot upload to, list, download or delete Org B's files, resolve Org B's
 ticket keys when linking, or mention Org B's users; internal files, notes and
 staff-only events never reach requesters; mentions only reach people who can
 read the comment; uploads must match the signed type and size; quarantined and
-pending files are never served. A unit test fails if any model with an
+pending files are never served. Phase 3 adds: the database admits only one
+running timer per user even under concurrent starts; time data never reaches
+requesters; board moves can't bypass workflow rules, required resolutions or
+version checks; and My Work buckets are correct across DST. A unit test fails
+if any model with an
 `organizationId` is missing from the scoped client. Search, embedding and
 AI-history isolation tests arrive with those subsystems.
 
@@ -247,7 +261,7 @@ and docs.
 | --- | --- | --- |
 | 1 Foundation | auth, orgs, memberships, roles, tenant-safe services, audit, tests, Docker | **done** |
 | 2 Core ITSM | ticket CRUD and UI, workflow/priority/category/custom-field admin, comments, internal notes, mentions, attachments, relations, watchers, timeline | **done** |
-| 3 Work management | My Work, Kanban (with keyboard alternative to drag-and-drop), time tracking | planned |
+| 3 Work management | My Work, Kanban (with keyboard alternative to drag-and-drop), time tracking | **done** |
 | 4 SLA & notifications | business hours/holidays, SLA engine, BullMQ jobs, email providers, SSE | planned |
 | 5 Knowledge | articles, versions, lifecycle, FTS | planned |
 | 6 RAG foundation | embeddings, pgvector HNSW, hybrid retrieval, permission filtering, eval | planned, see [ai-rag.md](docs/ai-rag.md) |

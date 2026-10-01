@@ -56,6 +56,14 @@ See [ADR-0010](decisions/0010-attachments-via-presigned-urls.md). In short:
   `tickets.read_internal`.
 - **Scan hook:** quarantined and pending-scan files are never downloadable.
 
+## Time data
+
+Time entries are staff data: tracking needs `time.track`, deleting others'
+entries needs `time.manage`, and viewing needs `time.track` or
+`reports.read`. Requesters never receive entries or time events. Database
+constraints enforce one running timer per user and 0–24 h entries
+([ADR-0015](decisions/0015-time-tracking-invariants.md)).
+
 ## User content
 
 Markdown is rendered without raw HTML, dangerous URL schemes are stripped,
@@ -79,7 +87,8 @@ Audited today: registration, login success/failure, organization
 create/update/switch, invitations (create/revoke/accept), role changes,
 removals, team changes, ticket create/update/delete/status/assignment/
 priority/comment, watchers, links, attachment request/upload/download/delete/
-quarantine, ticket and workflow configuration changes, and authorization
+quarantine, ticket and workflow configuration changes, timers started and
+stopped (including the 24 h cap), time logged and deleted, and authorization
 denials. AI events join in Phase 7.
 
 ## Transport and headers

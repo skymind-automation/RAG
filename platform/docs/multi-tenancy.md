@@ -58,6 +58,7 @@ pair:
   memberships (so only members, past or present, can appear on a ticket)
 - comments, watchers → ticket and member; team memberships → team and
   membership; workflow transitions/statuses → workflow
+- time entries → ticket and member
 - ticket relations → both tickets; attachments → ticket, optional comment
   and uploader; comment mentions → comment and member
 - attachment storage keys must start with `org/<the row's organizationId>/`

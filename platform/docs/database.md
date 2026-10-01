@@ -32,6 +32,7 @@ User ─┬─< OrganizationMembership >── Organization ─┬─< Team ─<
                                                                 ├─< TicketWatcher, Attachment
                                                                 └─< TicketRelation >─ Ticket (same org)
 Organization ─< CustomFieldDefinition   (values in Ticket.customFields JSON)
+Ticket ─< TimeEntry >─ Membership       (one running timer per user, DB-enforced)
 ```
 
 ## Migrations
@@ -40,6 +41,7 @@ Organization ─< CustomFieldDefinition   (values in Ticket.customFields JSON)
 | --- | --- |
 | `20260930212003_init` | `CREATE EXTENSION vector`; all tables, enums, indexes, FKs (incl. composite tenant FKs) |
 | `20261001090000_ticket_collaboration` | ticket relations, attachments, comment mentions, custom field definitions; CHECKs: no self-links, positive size, storage key prefixed by its own organization, custom-field key format |
+| `20261001120000_time_tracking` | `time_entries`; partial unique index (one running timer per user per org); CHECKs for open/closed consistency, 0–24 h, manual entries closed |
 | `20260930212100_tenant_integrity` | CHECKs (lowercase email, slug format, prefix format, positive numbers), partial unique indexes (one default workflow/priority per org, one initial status per workflow), active-membership index, audit immutability trigger |
 
 The hand-written migration only contains objects Prisma doesn't diff, so

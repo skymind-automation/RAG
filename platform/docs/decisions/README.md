@@ -17,3 +17,6 @@ Superseded ADRs stay, marked as superseded.
 | [0010](0010-attachments-via-presigned-urls.md) | Attachments via presigned URLs; HMAC-signed local driver for development |
 | [0011](0011-timeline-from-audit-log.md) | Activity timeline derived from the audit log |
 | [0012](0012-custom-fields-as-validated-json.md) | Custom fields as JSON validated against per-org definitions |
+| [0013](0013-kanban-columns-and-moves.md) | Kanban columns are status categories; moves go through the workflow; explicit keyboard moving |
+| [0014](0014-calendar-math-in-organization-time-zone.md) | Calendar math (today/week/overdue, due dates) in the organization's time zone |
+| [0015](0015-time-tracking-invariants.md) | One running timer per user, 24 h cap, staff-only time data, all DB-enforced |

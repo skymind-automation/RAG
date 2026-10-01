@@ -48,6 +48,9 @@ Consequences:
 | TicketService | `server/tickets/ticket-service.ts` | create, list (cursor + filters), get, update, soft delete, transitions, assignment, comments (mentions, attachments) |
 | Ticket collaboration | `server/tickets/{watcher,relation,timeline}-service.ts` | watchers, related tickets, activity timeline |
 | Ticket configuration | `server/tickets/ticket-config-service.ts`, `custom-fields.ts` | categories, priorities, workflow statuses/transitions, custom fields |
+| BoardService | `server/boards/board-service.ts` | category columns, filters, moves via `transitionTicket` |
+| MyWorkService | `server/work/my-work-service.ts` | assigned / today / week / overdue / backlog / watching, time summary |
+| TimeService | `server/time/time-service.ts` | timers (single running, switch), manual entries, totals |
 | AttachmentService | `server/attachments/attachment-service.ts` + `lib/storage` | presigned upload/confirm/download, validation, scan hook |
 | AuditService | `server/audit/*` | append-only writes in-transaction; tenant-scoped reads |
 | PermissionService | `lib/permissions` + `server/auth/resolve.ts` | role→permission map, grant rules, checks |
@@ -82,7 +85,10 @@ Server Components by default. Client Components only for interactivity
 (forms with react-hook-form + zod, dropdowns, dialogs). TanStack Query is
 provisioned for Phase 2+ client-side data. Zustand holds UI-only state
 (mobile nav), never tenant data or authorization state. shadcn/ui (Radix)
-primitives, Delta red as the primary token, WCAG-minded patterns: labelled
+primitives, Delta red as the primary token. The Kanban board uses TanStack
+Query for optimistic moves with rollback and refetch, and dnd-kit for
+pointer dragging, with explicit keyboard moving and a "Move to" menu
+(ADR-0013). WCAG-minded patterns: labelled
 inputs, `aria-invalid`/`aria-describedby`, `role="alert"` errors, skip
 link, Radix focus-trapped mobile drawer, visible focus rings.
 

@@ -23,6 +23,8 @@ import { addRelation } from "@/server/tickets/relation-service";
 import { createCustomField } from "@/server/tickets/ticket-config-service";
 import { addComment, createTicket, getTicket, transitionTicket, updateTicket } from "@/server/tickets/ticket-service";
 import { addWatcher } from "@/server/tickets/watcher-service";
+import { addDays, formatWallDate, wallDateOf } from "@/lib/time/zoned";
+import { logTime } from "@/server/time/time-service";
 
 export const SEED_PASSWORD = "delta-demo-password";
 
@@ -624,6 +626,33 @@ async function seedCollaboration(users: Map<string, { id: string; email: string;
     mentionUserIds: [users.get("omar")!.id],
   });
   await addWatcher(priya, { ticketId: vpn.id, userId: users.get("priya")!.id });
+
+  // My Work demo for Luis (agent): due dates relative to *today* in the
+  // organization's zone, so Overdue / Today / This week always have content.
+  const today = wallDateOf(new Date(), DELTA.timezone);
+  const due = (days: number) => formatWallDate(addDays(today, days));
+  for (const [key, days] of [
+    ["IT-000013", -2],
+    ["IT-000007", 0],
+    ["IT-000012", 3],
+  ] as const) {
+    const t = await getTicket(maya, key);
+    await updateTicket(maya, { ticketId: t.id, expectedVersion: t.version, dueAt: due(days) });
+  }
+  const luis = await ctx("luis", DELTA.slug);
+  await logTime(luis, {
+    ticketId: vpn.id,
+    minutes: 95,
+    description: "Firewall log analysis",
+    billable: true,
+    startedAt: new Date(Date.now() - 26 * 3600_000),
+  });
+  await logTime(luis, {
+    ticketId: wifi.id,
+    minutes: 40,
+    description: "Site survey, bay 3",
+    startedAt: new Date(Date.now() - 3 * 3600_000),
+  });
 
   // Northwind: ward field required on incidents.
   const daniel = await ctx("daniel", NORTHWIND.slug);
