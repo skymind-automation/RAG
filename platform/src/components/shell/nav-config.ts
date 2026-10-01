@@ -29,9 +29,9 @@ export interface NavItem {
 
 export const PRIMARY_NAV: NavItem[] = [
   { label: "Overview", href: "", icon: Gauge },
-  { label: "My Work", href: "/my-work", icon: ClipboardList, anyOf: ["tickets.update"], comingIn: "Phase 3" },
+  { label: "My Work", href: "/my-work", icon: ClipboardList, anyOf: ["tickets.update"] },
   { label: "Tickets", href: "/tickets", icon: Ticket, anyOf: ["tickets.read", "tickets.read_own"] },
-  { label: "Boards", href: "/boards", icon: Columns3, anyOf: ["tickets.read"], comingIn: "Phase 3" },
+  { label: "Boards", href: "/boards", icon: Columns3, anyOf: ["tickets.read"] },
   { label: "Knowledge", href: "/knowledge", icon: BookOpen, anyOf: ["knowledge.read"], comingIn: "Phase 5" },
   { label: "Reports", href: "/reports", icon: LineChart, anyOf: ["reports.read"], comingIn: "Phase 4" },
   { label: "Teams", href: "/teams", icon: Users, anyOf: ["teams.read"] },

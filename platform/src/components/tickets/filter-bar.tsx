@@ -18,7 +18,14 @@ export interface FilterOptions {
 }
 
 /** URL-driven filters: every view is a shareable, bookmarkable link. */
-export function FilterBar({ options }: { options: FilterOptions }) {
+export function FilterBar({
+  options,
+  show = { search: true, state: true },
+}: {
+  options: FilterOptions;
+  /** Boards hide search and state (columns already are the state). */
+  show?: { search?: boolean; state?: boolean };
+}) {
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
@@ -55,29 +62,33 @@ export function FilterBar({ options }: { options: FilterOptions }) {
 
   return (
     <div role="search" aria-busy={pending} className="flex flex-wrap items-center gap-2">
-      <form
-        className="relative"
-        onSubmit={(e) => {
-          e.preventDefault();
-          set("q", q.trim() || null);
-        }}
-      >
-        <Search
-          className="pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-muted-foreground"
-          aria-hidden
-        />
-        <Input
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          placeholder="Search key or title"
-          aria-label="Search tickets"
-          className="h-7 w-52 pl-7 text-sm"
-        />
-      </form>
-      {select("state", "State", [
-        { value: "open", label: "Open tickets" },
-        { value: "closed", label: "Resolved & closed" },
-      ])}
+      {show.search ? (
+        <form
+          className="relative"
+          onSubmit={(e) => {
+            e.preventDefault();
+            set("q", q.trim() || null);
+          }}
+        >
+          <Search
+            className="pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-muted-foreground"
+            aria-hidden
+          />
+          <Input
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Search key or title"
+            aria-label="Search tickets"
+            className="h-7 w-52 pl-7 text-sm"
+          />
+        </form>
+      ) : null}
+      {show.state
+        ? select("state", "State", [
+            { value: "open", label: "Open tickets" },
+            { value: "closed", label: "Resolved & closed" },
+          ])
+        : null}
       {options.staff
         ? select(
             "assigneeId",

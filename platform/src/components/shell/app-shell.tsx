@@ -10,18 +10,21 @@ import { useUiStore } from "@/stores/ui-store";
 import { OrgSwitcher, type SwitcherOrg } from "./org-switcher";
 import { SidebarNav } from "./sidebar-nav";
 import { UserMenu } from "./user-menu";
+import { RunningTimer, type RunningTimerView } from "@/components/time/running-timer";
 
 export function AppShell({
   current,
   organizations,
   permissions,
   user,
+  runningTimer,
   children,
 }: {
   current: SwitcherOrg;
   organizations: SwitcherOrg[];
   permissions: Permission[];
   user: { name: string; email: string };
+  runningTimer?: RunningTimerView | null;
   children: React.ReactNode;
 }) {
   const open = useUiStore((s) => s.mobileNavOpen);
@@ -40,6 +43,7 @@ export function AppShell({
       <div className="flex-1 overflow-y-auto">
         <SidebarNav orgSlug={current.slug} permissions={permissions} />
       </div>
+      {runningTimer ? <RunningTimer orgSlug={current.slug} timer={runningTimer} /> : null}
       <UserMenu name={user.name} email={user.email} />
     </div>
   );

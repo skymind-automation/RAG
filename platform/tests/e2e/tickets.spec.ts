@@ -168,11 +168,17 @@ test("admins configure categories and custom fields that forms then use", async 
   const field = unique("Vehicle VIN");
   await page.getByLabel("Label").fill(field);
   await page.getByLabel("Required").check();
+  // Scope the required field to Change tickets so it can't affect other
+  // suites that create tickets in the same (shared) E2E database.
+  await page.getByRole("group", { name: "Applies to" }).getByLabel("Change").check();
   await page.getByRole("button", { name: "Add field" }).click();
   await expect(page.getByText(field, { exact: true })).toBeVisible();
 
   await page.goto(`${BASE}/tickets/new`);
-  await page.getByLabel("Title").fill(unique("Tracker offline"));
+  await page.getByLabel("Title").fill(unique("Replace tracker"));
+  // Not shown (or required) for other types…
+  await expect(page.getByLabel(field)).toHaveCount(0);
+  await chooseOption(page, "Type", "Change");
   await page.getByRole("button", { name: "Create ticket" }).click();
   await expect(page.getByText(`${field} is required.`)).toBeVisible();
   await page.getByLabel(field).fill("1FUJGLDR0CLBP8834");

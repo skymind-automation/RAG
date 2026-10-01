@@ -16,6 +16,8 @@ import { listRelations } from "@/server/tickets/relation-service";
 import { getTicketFormOptions } from "@/server/tickets/ticket-config-service";
 import { availableTransitions, getTicket } from "@/server/tickets/ticket-service";
 import { getTicketTimeline } from "@/server/tickets/timeline-service";
+import { getRunningTimer, listTicketTime } from "@/server/time/time-service";
+import { TimePanel } from "@/components/time/time-panel";
 
 type Params = Promise<{ orgSlug: string; ticketKey: string }>;
 
@@ -34,12 +36,15 @@ export default async function TicketPage({ params }: { params: Params }) {
 
   const perms = ctx.permissions;
   const staff = perms.has("tickets.update");
-  const [timeline, related, attachments, options, transitions] = await Promise.all([
+  const canSeeTime = perms.has("time.track") || perms.has("reports.read");
+  const [timeline, related, attachments, options, transitions, time, running] = await Promise.all([
     getTicketTimeline(ctx, ticket.id),
     listRelations(ctx, ticket.id),
     listTicketAttachments(ctx, ticket.id),
     getTicketFormOptions(ctx),
     perms.has("tickets.transition") ? availableTransitions(ctx, ticket.id) : Promise.resolve([]),
+    canSeeTime ? listTicketTime(ctx, ticket.id) : Promise.resolve(null),
+    getRunningTimer(ctx),
   ]);
   const tz = ctx.organization.timezone;
 
@@ -143,6 +148,23 @@ export default async function TicketPage({ params }: { params: Params }) {
               customFields: (ticket.customFields ?? {}) as Record<string, string | number | boolean>,
             }}
           />
+          {time ? (
+            <TimePanel
+              orgSlug={orgSlug}
+              ticketId={ticket.id}
+              ticketKey={ticket.key}
+              entries={time.entries.map((e) => ({
+                ...e,
+                startedAt: e.startedAt.toISOString(),
+                endedAt: e.endedAt?.toISOString() ?? null,
+              }))}
+              totals={time.totals}
+              running={running ? { startedAt: running.startedAt.toISOString(), ticket: running.ticket } : null}
+              currentUserId={ctx.user.id}
+              can={{ track: perms.has("time.track"), manage: perms.has("time.manage") }}
+              timezone={tz}
+            />
+          ) : null}
           <AttachmentsPanel
             orgSlug={orgSlug}
             ticketId={ticket.id}
