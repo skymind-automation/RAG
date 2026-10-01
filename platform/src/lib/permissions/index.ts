@@ -37,6 +37,8 @@ export const PERMISSIONS = [
   "tickets.comment_internal",
   "tickets.read_internal",
 
+  /** Categories, priorities, custom fields, numbering. */
+  "tickets.configure",
   "workflows.manage",
   "reports.read",
   "sla.manage",

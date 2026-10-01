@@ -37,6 +37,10 @@ export const TENANT_MODELS = new Set<Prisma.ModelName>([
   "Ticket",
   "Comment",
   "TicketWatcher",
+  "TicketRelation",
+  "Attachment",
+  "CommentMention",
+  "CustomFieldDefinition",
 ]);
 
 const WHERE_OPERATIONS = new Set([

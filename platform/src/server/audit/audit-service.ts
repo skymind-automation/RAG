@@ -37,6 +37,16 @@ export const AUDIT_ACTIONS = [
   "ticket.priority_changed",
   "ticket.comment_added",
   "ticket.watcher_added",
+  "ticket.watcher_removed",
+  "ticket.relation_added",
+  "ticket.relation_removed",
+  "attachment.upload_requested",
+  "attachment.uploaded",
+  "attachment.quarantined",
+  "attachment.downloaded",
+  "attachment.deleted",
+  "ticket_config.updated",
+  "workflow.updated",
   "authorization.denied",
 ] as const;
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];

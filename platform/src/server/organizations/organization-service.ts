@@ -116,12 +116,12 @@ export async function updateOrganization(ctx: OrgContext, raw: unknown) {
   return prisma.$transaction(async (tx) => {
     const before = await tx.organization.findUniqueOrThrow({
       where: { id: ctx.organization.id },
-      select: { name: true, timezone: true, ticketPrefix: true },
+      select: { name: true, timezone: true, ticketPrefix: true, ticketNumberPadding: true },
     });
     const after = await tx.organization.update({
       where: { id: ctx.organization.id },
       data: input,
-      select: { name: true, timezone: true, ticketPrefix: true },
+      select: { name: true, timezone: true, ticketPrefix: true, ticketNumberPadding: true },
     });
     // A new prefix starts its own sequence; existing keys are untouched, and
     // keys stay unique because the prefix is part of the key.

@@ -7,29 +7,32 @@ import {
   addCommentSchema,
   assignTicketSchema,
   createTicketSchema,
+  deleteTicketSchema,
   listTicketsSchema,
   transitionTicketSchema,
+  updateTicketSchema,
 } from "@/lib/validation/schemas";
 import { recordAudit } from "@/server/audit/audit-service";
 import { can, requireAnyPermission, requirePermission } from "@/server/auth/resolve";
 import type { OrgContext } from "@/server/context";
+import { validateCustomFields } from "./custom-fields";
+import { assertAssignable, memberCanReadTicket, readScope } from "./ticket-access";
 import { allocateTicketNumber, formatTicketKey } from "./ticket-numbering";
 
 /**
- * TicketService — the initial ticket domain (Phase 1 model, Phase 2 grows
- * the UI around it).
+ * TicketService — ticket lifecycle.
  *
- * Access model:
- *   tickets.read      → every ticket in the organization
- *   tickets.read_own  → only tickets where the caller is the requester
- * A ticket the caller may not read is reported as NotFound, never Forbidden,
- * so ticket existence is not disclosed.
+ * Access model (see ticket-access.ts): tickets.read sees every ticket,
+ * tickets.read_own only the caller's requests. Unreadable tickets are
+ * NotFound, never Forbidden. Internal notes and internal attachments are
+ * filtered in queries for anyone without tickets.read_internal.
  *
- * Internal notes: selected only when the caller holds tickets.read_internal.
- * The filter is in the query, not in the UI.
+ * Every mutation runs in a transaction on the tenant-scoped client, checks
+ * `version` (optimistic concurrency) where the client edits fields, and
+ * writes its audit row in the same transaction.
  */
 
-const ticketListSelect = {
+export const ticketListSelect = {
   id: true,
   key: true,
   type: true,
@@ -47,22 +50,30 @@ const ticketListSelect = {
 
 export type TicketListItem = Prisma.TicketGetPayload<{ select: typeof ticketListSelect }>;
 
-/** Row-level read filter derived from permissions. */
-function readScope(ctx: OrgContext): Prisma.TicketWhereInput {
-  if (can(ctx, "tickets.read")) return { deletedAt: null };
-  if (can(ctx, "tickets.read_own")) return { deletedAt: null, requesterId: ctx.user.id };
-  throw new AuthorizationError();
+async function activeCustomFieldDefinitions(tx: ScopedTx) {
+  return tx.customFieldDefinition.findMany({
+    where: { archivedAt: null },
+    select: { key: true, label: true, type: true, options: true, required: true, ticketTypes: true },
+  });
 }
 
-/** An assignee must be an active member whose role can work tickets. */
-async function assertAssignable(tx: ScopedTx, userId: string): Promise<void> {
-  const m = await tx.organizationMembership.findFirst({
-    where: { userId, status: "ACTIVE" },
-    select: { role: true },
+async function findCategory(tx: ScopedTx, categoryId: string): Promise<void> {
+  const c = await tx.ticketCategory.findFirst({ where: { id: categoryId, deletedAt: null }, select: { id: true } });
+  if (!c) throw new ValidationError("Some fields are invalid.", { categoryId: ["Unknown category."] });
+}
+
+async function findTeam(tx: ScopedTx, teamId: string): Promise<void> {
+  const t = await tx.team.findFirst({ where: { id: teamId, deletedAt: null }, select: { id: true } });
+  if (!t) throw new ValidationError("Some fields are invalid.", { teamId: ["Unknown team."] });
+}
+
+async function findPriority(tx: ScopedTx, key: string | undefined) {
+  const priority = await tx.ticketPriority.findFirst({
+    where: key ? { key } : { isDefault: true },
+    select: { id: true, key: true, name: true },
   });
-  if (!m || !roleHas(m.role, "tickets.update")) {
-    throw new ValidationError("Some fields are invalid.", { assigneeId: ["This person can't be assigned tickets."] });
-  }
+  if (!priority) throw new ValidationError("Some fields are invalid.", { priorityKey: ["Unknown priority."] });
+  return priority;
 }
 
 export async function createTicket(ctx: OrgContext, raw: unknown) {
@@ -86,25 +97,11 @@ export async function createTicket(ctx: OrgContext, raw: unknown) {
     });
     if (!initial) throw new ValidationError("This organization has no default workflow configured.");
 
-    const priority = await tx.ticketPriority.findFirst({
-      where: input.priorityKey ? { key: input.priorityKey } : { isDefault: true },
-      select: { id: true },
-    });
-    if (!priority) throw new ValidationError("Some fields are invalid.", { priorityKey: ["Unknown priority."] });
-
+    const priority = await findPriority(tx, input.priorityKey);
     // Every referenced id is looked up through the scoped client: another
     // tenant's id resolves to nothing. The composite FKs are the backstop.
-    if (input.categoryId) {
-      const c = await tx.ticketCategory.findFirst({
-        where: { id: input.categoryId, deletedAt: null },
-        select: { id: true },
-      });
-      if (!c) throw new ValidationError("Some fields are invalid.", { categoryId: ["Unknown category."] });
-    }
-    if (input.teamId) {
-      const t = await tx.team.findFirst({ where: { id: input.teamId, deletedAt: null }, select: { id: true } });
-      if (!t) throw new ValidationError("Some fields are invalid.", { teamId: ["Unknown team."] });
-    }
+    if (input.categoryId) await findCategory(tx, input.categoryId);
+    if (input.teamId) await findTeam(tx, input.teamId);
     if (requesterId !== ctx.user.id) {
       const r = await tx.organizationMembership.findFirst({
         where: { userId: requesterId, status: "ACTIVE" },
@@ -113,6 +110,12 @@ export async function createTicket(ctx: OrgContext, raw: unknown) {
       if (!r) throw new ValidationError("Some fields are invalid.", { requesterId: ["Unknown requester."] });
     }
     if (input.assigneeId) await assertAssignable(tx, input.assigneeId);
+    const customFields = validateCustomFields(
+      await activeCustomFieldDefinitions(tx),
+      input.type,
+      {},
+      input.customFields,
+    );
 
     const prefix = ctx.organization.ticketPrefix;
     const number = await allocateTicketNumber(tx, organizationId, prefix);
@@ -135,6 +138,7 @@ export async function createTicket(ctx: OrgContext, raw: unknown) {
         createdById: ctx.user.id,
         source,
         dueAt: input.dueAt ?? null,
+        customFields,
       },
       select: ticketListSelect,
     });
@@ -149,7 +153,7 @@ export async function createTicket(ctx: OrgContext, raw: unknown) {
       action: "ticket.created",
       entityType: "ticket",
       entityId: ticket.id,
-      metadata: { key, type: input.type, source, assigneeId: input.assigneeId ?? null },
+      metadata: { key, type: input.type, source, priority: priority.name, assigneeId: input.assigneeId ?? null },
     });
     return ticket;
   });
@@ -158,12 +162,25 @@ export async function createTicket(ctx: OrgContext, raw: unknown) {
 export async function listTickets(ctx: OrgContext, raw: unknown = {}) {
   requireAnyPermission(ctx, ["tickets.read", "tickets.read_own"]);
   const input = parseInput(listTicketsSchema, raw);
+  const assignee =
+    input.assigneeId === "me" ? ctx.user.id : input.assigneeId === "unassigned" ? null : input.assigneeId;
+  const q = input.q?.trim();
   const where: Prisma.TicketWhereInput = {
     AND: [
       readScope(ctx),
       input.statusCategory ? { status: { category: input.statusCategory } } : {},
-      input.assigneeId ? { assigneeId: input.assigneeId } : {},
+      input.state === "open" ? { status: { category: { notIn: ["RESOLVED", "CLOSED"] } } } : {},
+      input.state === "closed" ? { status: { category: { in: ["RESOLVED", "CLOSED"] } } } : {},
+      input.assigneeId !== undefined ? { assigneeId: assignee } : {},
       input.type ? { type: input.type } : {},
+      input.priorityKey ? { priority: { key: input.priorityKey } } : {},
+      input.teamId ? { teamId: input.teamId } : {},
+      input.categoryId ? { categoryId: input.categoryId } : {},
+      q
+        ? {
+            OR: [{ key: { contains: q.toUpperCase() } }, { title: { contains: q, mode: "insensitive" as const } }],
+          }
+        : {},
     ],
   };
   const rows = await scopedDb(ctx.organization.id).ticket.findMany({
@@ -192,10 +209,147 @@ export async function getTicket(ctx: OrgContext, ticketIdOrKey: string) {
       closedAt: true,
       firstRespondedAt: true,
       category: { select: { id: true, name: true } },
+      createdBy: { select: { id: true, name: true } },
+      watchers: { select: { user: { select: { id: true, name: true } } }, orderBy: { createdAt: "asc" } },
     },
   });
   if (!ticket) throw new NotFoundError("Ticket not found.");
-  return ticket;
+  return { ...ticket, watchers: ticket.watchers.map((w) => w.user) };
+}
+
+export type TicketDetail = Awaited<ReturnType<typeof getTicket>>;
+
+/**
+ * Partial field update (title, description, type, priority, category, team,
+ * due date, custom fields). Status and assignment have their own operations
+ * because they carry workflow and routing rules.
+ */
+export async function updateTicket(ctx: OrgContext, raw: unknown) {
+  requirePermission(ctx, "tickets.update");
+  const input = parseInput(updateTicketSchema, raw);
+  const db = scopedDb(ctx.organization.id);
+
+  return db.$transaction(async (tx) => {
+    const ticket = await tx.ticket.findFirst({
+      where: { id: input.ticketId, deletedAt: null },
+      select: {
+        id: true,
+        key: true,
+        type: true,
+        title: true,
+        description: true,
+        categoryId: true,
+        teamId: true,
+        dueAt: true,
+        customFields: true,
+        priority: { select: { id: true, key: true, name: true } },
+      },
+    });
+    if (!ticket) throw new NotFoundError("Ticket not found.");
+
+    const data: Prisma.TicketUncheckedUpdateManyInput = {};
+    const changed: string[] = [];
+    if (input.title !== undefined && input.title !== ticket.title) {
+      data.title = input.title;
+      changed.push("title");
+    }
+    if (input.description !== undefined && input.description !== ticket.description) {
+      data.description = input.description;
+      changed.push("description");
+    }
+    const nextType = input.type ?? ticket.type;
+    if (nextType !== ticket.type) {
+      data.type = nextType;
+      changed.push("type");
+    }
+    let priorityChange: { from: string; to: string } | null = null;
+    if (input.priorityKey !== undefined && input.priorityKey !== ticket.priority.key) {
+      const p = await findPriority(tx, input.priorityKey);
+      data.priorityId = p.id;
+      priorityChange = { from: ticket.priority.name, to: p.name };
+    }
+    if (input.categoryId !== undefined && input.categoryId !== ticket.categoryId) {
+      if (input.categoryId) await findCategory(tx, input.categoryId);
+      data.categoryId = input.categoryId;
+      changed.push("category");
+    }
+    if (input.teamId !== undefined && input.teamId !== ticket.teamId) {
+      if (input.teamId) await findTeam(tx, input.teamId);
+      data.teamId = input.teamId;
+      changed.push("team");
+    }
+    if (input.dueAt !== undefined && input.dueAt?.getTime() !== ticket.dueAt?.getTime()) {
+      data.dueAt = input.dueAt;
+      changed.push("due date");
+    }
+    // Re-validate custom fields when they change *or* the type changes
+    // (required/applicable fields differ per type).
+    if (input.customFields !== undefined || data.type) {
+      const existing = (ticket.customFields ?? {}) as Record<string, unknown>;
+      const next = validateCustomFields(
+        await activeCustomFieldDefinitions(tx),
+        nextType,
+        existing,
+        input.customFields ?? {},
+      );
+      if (JSON.stringify(next) !== JSON.stringify(existing)) {
+        data.customFields = next;
+        changed.push("custom fields");
+      }
+    }
+
+    if (changed.length === 0 && !priorityChange) return { id: ticket.id, version: input.expectedVersion };
+
+    const { count } = await tx.ticket.updateMany({
+      where: { id: ticket.id, version: input.expectedVersion },
+      data: { ...data, version: { increment: 1 } },
+    });
+    if (count === 0) throw new ConflictError();
+
+    if (priorityChange) {
+      await recordAudit(tx, ctx, {
+        action: "ticket.priority_changed",
+        entityType: "ticket",
+        entityId: ticket.id,
+        metadata: { key: ticket.key, ...priorityChange },
+      });
+    }
+    if (changed.length > 0) {
+      await recordAudit(tx, ctx, {
+        action: "ticket.updated",
+        entityType: "ticket",
+        entityId: ticket.id,
+        // Field names only; content (title/description) can be sensitive.
+        metadata: { key: ticket.key, fields: changed },
+      });
+    }
+    return { id: ticket.id, version: input.expectedVersion + 1 };
+  });
+}
+
+/** Soft delete. The row, its history and its audit trail are retained. */
+export async function deleteTicket(ctx: OrgContext, raw: unknown): Promise<void> {
+  requirePermission(ctx, "tickets.delete");
+  const input = parseInput(deleteTicketSchema, raw);
+  const db = scopedDb(ctx.organization.id);
+  await db.$transaction(async (tx) => {
+    const ticket = await tx.ticket.findFirst({
+      where: { id: input.ticketId, deletedAt: null },
+      select: { id: true, key: true },
+    });
+    if (!ticket) throw new NotFoundError("Ticket not found.");
+    const { count } = await tx.ticket.updateMany({
+      where: { id: ticket.id, version: input.expectedVersion },
+      data: { deletedAt: new Date(), version: { increment: 1 } },
+    });
+    if (count === 0) throw new ConflictError();
+    await recordAudit(tx, ctx, {
+      action: "ticket.deleted",
+      entityType: "ticket",
+      entityId: ticket.id,
+      metadata: { key: ticket.key },
+    });
+  });
 }
 
 /** Statuses reachable from the ticket's current status under its workflow. */
@@ -315,11 +469,21 @@ export async function assignTicket(ctx: OrgContext, raw: unknown) {
   });
 }
 
+/**
+ * Add a public reply or internal note, optionally @mentioning members and
+ * attaching files the caller already uploaded to this ticket.
+ *
+ * Mentions are validated so a comment can't be used to notify (and later
+ * expose content to) someone who couldn't read it: internal notes may only
+ * mention members who can read internal notes; public replies only members
+ * who can read this ticket.
+ */
 export async function addComment(ctx: OrgContext, raw: unknown) {
   requirePermission(ctx, "tickets.comment");
   const input = parseInput(addCommentSchema, raw);
   if (input.visibility === "INTERNAL") requirePermission(ctx, "tickets.comment_internal");
-  const db = scopedDb(ctx.organization.id);
+  const organizationId = ctx.organization.id;
+  const db = scopedDb(organizationId);
 
   return db.$transaction(async (tx) => {
     const ticket = await tx.ticket.findFirst({
@@ -328,9 +492,53 @@ export async function addComment(ctx: OrgContext, raw: unknown) {
     });
     if (!ticket) throw new NotFoundError("Ticket not found.");
 
+    const mentionIds = [...new Set(input.mentionUserIds)];
+    if (mentionIds.length > 0) {
+      if (!can(ctx, "tickets.read")) {
+        throw new AuthorizationError("You can't mention people on a request.");
+      }
+      const members = await tx.organizationMembership.findMany({
+        where: { userId: { in: mentionIds }, status: "ACTIVE" },
+        select: { userId: true, role: true },
+      });
+      const allowed = new Set(
+        members
+          .filter((m) =>
+            input.visibility === "INTERNAL"
+              ? roleHas(m.role, "tickets.read_internal")
+              : memberCanReadTicket(m.role, m.userId, ticket.requesterId),
+          )
+          .map((m) => m.userId),
+      );
+      if (mentionIds.some((uid) => !allowed.has(uid))) {
+        throw new ValidationError("Some fields are invalid.", {
+          mentionUserIds: ["You can only mention members who can see this comment."],
+        });
+      }
+    }
+
+    const attachmentIds = [...new Set(input.attachmentIds)];
+    if (attachmentIds.length > 0) {
+      const usable = await tx.attachment.count({
+        where: {
+          id: { in: attachmentIds },
+          ticketId: ticket.id,
+          uploadedById: ctx.user.id,
+          commentId: null,
+          deletedAt: null,
+          status: { in: ["AVAILABLE", "PENDING_SCAN"] },
+        },
+      });
+      if (usable !== attachmentIds.length) {
+        throw new ValidationError("Some fields are invalid.", {
+          attachmentIds: ["One or more files are missing or still uploading."],
+        });
+      }
+    }
+
     const comment = await tx.comment.create({
       data: {
-        organizationId: ctx.organization.id,
+        organizationId,
         ticketId: ticket.id,
         authorId: ctx.user.id,
         body: input.body,
@@ -338,6 +546,18 @@ export async function addComment(ctx: OrgContext, raw: unknown) {
       },
       select: { id: true, visibility: true, createdAt: true },
     });
+    if (mentionIds.length > 0) {
+      await tx.commentMention.createMany({
+        data: mentionIds.map((userId) => ({ organizationId, commentId: comment.id, userId })),
+      });
+    }
+    if (attachmentIds.length > 0) {
+      // Files inherit the comment's visibility: attached to an internal note → internal.
+      await tx.attachment.updateMany({
+        where: { id: { in: attachmentIds } },
+        data: { commentId: comment.id, visibility: input.visibility },
+      });
+    }
     // First public reply by someone other than the requester = first response (SLA input).
     if (!ticket.firstRespondedAt && input.visibility === "PUBLIC" && ctx.user.id !== ticket.requesterId) {
       await tx.ticket.updateMany({ where: { id: ticket.id }, data: { firstRespondedAt: comment.createdAt } });
@@ -347,7 +567,13 @@ export async function addComment(ctx: OrgContext, raw: unknown) {
       entityType: "ticket",
       entityId: ticket.id,
       // Never the body: comments can hold sensitive content.
-      metadata: { key: ticket.key, commentId: comment.id, visibility: comment.visibility },
+      metadata: {
+        key: ticket.key,
+        commentId: comment.id,
+        visibility: comment.visibility,
+        mentions: mentionIds.length,
+        attachments: attachmentIds.length,
+      },
     });
     return comment;
   });

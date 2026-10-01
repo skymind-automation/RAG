@@ -12,7 +12,15 @@ export function getRedis(): Redis | null {
   if (globalForRedis.__redis !== undefined) return globalForRedis.__redis;
   const url = process.env.REDIS_URL;
   const client = url
-    ? new Redis(url, { lazyConnect: false, maxRetriesPerRequest: 1, enableOfflineQueue: false })
+    ? new Redis(url, {
+        // Queue commands while the first connection is being established (so
+        // the first requests after boot are rate limited too), but never wait
+        // long: a down Redis surfaces as a fast error, not a hung request.
+        enableOfflineQueue: true,
+        connectTimeout: 2_000,
+        commandTimeout: 1_000,
+        maxRetriesPerRequest: 1,
+      })
     : null;
   // Connection errors are surfaced per-command; don't crash on 'error' events.
   client?.on("error", () => undefined);

@@ -93,6 +93,7 @@ export const updateOrganizationSchema = z.object({
   name: z.string().trim().min(2).max(100),
   timezone: timezoneSchema,
   ticketPrefix: ticketPrefixSchema,
+  ticketNumberPadding: z.coerce.number().int().min(3).max(10).optional(),
 });
 export type UpdateOrganizationInput = z.input<typeof updateOrganizationSchema>;
 
@@ -136,8 +137,40 @@ export const createTicketSchema = z.object({
   requesterId: z.string().min(1).optional(),
   source: z.enum(["AGENT", "PORTAL", "EMAIL", "API"]).default("AGENT"),
   dueAt: z.coerce.date().optional(),
+  /** Validated against the organization's CustomFieldDefinitions server-side. */
+  customFields: z.record(z.unknown()).default({}),
 });
 export type CreateTicketInput = z.input<typeof createTicketSchema>;
+
+const id = z.string().min(1).max(64);
+const expectedVersion = z.number().int().positive();
+
+/** Partial update. `null` clears an optional field; omitted fields are untouched. */
+export const updateTicketSchema = z.object({
+  ticketId: id,
+  expectedVersion,
+  title: z.string().trim().min(3, "Use at least 3 characters.").max(200).optional(),
+  description: z.string().max(20_000).optional(),
+  type: z.enum(TICKET_TYPES).optional(),
+  priorityKey: z.string().min(1).max(40).optional(),
+  categoryId: id.nullable().optional(),
+  teamId: id.nullable().optional(),
+  dueAt: z.coerce.date().nullable().optional(),
+  customFields: z.record(z.unknown()).optional(),
+});
+export type UpdateTicketInput = z.input<typeof updateTicketSchema>;
+
+export const deleteTicketSchema = z.object({ ticketId: id, expectedVersion });
+
+export const watcherSchema = z.object({ ticketId: id, userId: id });
+
+export const RELATION_TYPES = ["RELATES_TO", "DUPLICATES", "BLOCKS", "CAUSED_BY"] as const;
+export const addRelationSchema = z.object({
+  ticketId: id,
+  targetKey: z.string().trim().min(3).max(40),
+  type: z.enum(RELATION_TYPES),
+});
+export const removeRelationSchema = z.object({ relationId: id });
 
 export const transitionTicketSchema = z.object({
   ticketId: z.string().min(1),
@@ -156,14 +189,27 @@ export const addCommentSchema = z.object({
   ticketId: z.string().min(1),
   body: z.string().trim().min(1, "Write something first.").max(20_000),
   visibility: z.enum(["PUBLIC", "INTERNAL"]).default("PUBLIC"),
+  mentionUserIds: z.array(id).max(20).default([]),
+  /** Previously uploaded attachments (by the same user, on the same ticket) to attach. */
+  attachmentIds: z.array(id).max(10).default([]),
 });
+
+export const STATUS_CATEGORIES = ["NEW", "OPEN", "IN_PROGRESS", "PENDING", "RESOLVED", "CLOSED"] as const;
 
 export const listTicketsSchema = z.object({
   cursor: z.string().min(1).optional(),
-  limit: z.number().int().min(1).max(100).default(25),
-  statusCategory: z.enum(["NEW", "OPEN", "IN_PROGRESS", "PENDING", "RESOLVED", "CLOSED"]).optional(),
-  assigneeId: z.string().min(1).optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(25),
+  statusCategory: z.enum(STATUS_CATEGORIES).optional(),
+  /** "open" = every category except RESOLVED and CLOSED. */
+  state: z.enum(["open", "closed", "all"]).default("all"),
+  /** A user id, "me", or "unassigned". */
+  assigneeId: z.string().min(1).max(64).optional(),
   type: z.enum(TICKET_TYPES).optional(),
+  priorityKey: z.string().min(1).max(40).optional(),
+  teamId: id.optional(),
+  categoryId: id.optional(),
+  /** Matches key or title (case-insensitive). Full-text search arrives with Phase 5/6. */
+  q: z.string().trim().max(100).optional(),
 });
 export type ListTicketsInput = z.input<typeof listTicketsSchema>;
 
@@ -176,3 +222,65 @@ export function flattenZodError(error: z.ZodError): Record<string, string[]> {
   }
   return out;
 }
+
+// ── Ticket configuration (admin) ───────────────────────────────────────────
+
+export const categoryNameSchema = z.string().trim().min(2, "Use at least 2 characters.").max(60);
+export const createCategorySchema = z.object({
+  name: categoryNameSchema,
+  description: z.string().trim().max(300).optional(),
+});
+export const updateCategorySchema = z.object({ categoryId: id, name: categoryNameSchema });
+export const archiveCategorySchema = z.object({ categoryId: id });
+
+export const hexColorSchema = z.string().regex(/^#[0-9a-fA-F]{6}$/, "Use a hex colour like #dc2626.");
+export const updatePrioritySchema = z.object({
+  priorityId: id,
+  name: z.string().trim().min(2).max(30),
+  color: hexColorSchema,
+});
+export const setDefaultPrioritySchema = z.object({ priorityId: id });
+
+export const addStatusSchema = z.object({
+  name: z.string().trim().min(2).max(40),
+  category: z.enum(STATUS_CATEGORIES),
+});
+export const renameStatusSchema = z.object({ statusId: id, name: z.string().trim().min(2).max(40) });
+export const setTransitionSchema = z.object({
+  fromStatusId: id,
+  toStatusId: id,
+  enabled: z.boolean(),
+  requiresResolution: z.boolean().default(false),
+});
+
+export const CUSTOM_FIELD_TYPES = ["TEXT", "NUMBER", "SELECT", "DATE", "CHECKBOX"] as const;
+export const createCustomFieldSchema = z
+  .object({
+    label: z.string().trim().min(2).max(60),
+    type: z.enum(CUSTOM_FIELD_TYPES),
+    options: z.array(z.string().trim().min(1).max(60)).max(50).default([]),
+    required: z.boolean().default(false),
+    ticketTypes: z.array(z.enum(TICKET_TYPES)).default([]),
+  })
+  .refine((v) => v.type !== "SELECT" || v.options.length >= 2, {
+    message: "A select field needs at least two options.",
+    path: ["options"],
+  })
+  .refine((v) => new Set(v.options).size === v.options.length, {
+    message: "Options must be unique.",
+    path: ["options"],
+  });
+export type CreateCustomFieldInput = z.input<typeof createCustomFieldSchema>;
+export const archiveCustomFieldSchema = z.object({ fieldId: id });
+
+// ── Attachments ────────────────────────────────────────────────────────────
+
+export const requestUploadSchema = z.object({
+  ticketId: id,
+  fileName: z.string().trim().min(1).max(200),
+  contentType: z.string().trim().min(3).max(120),
+  sizeBytes: z.number().int().positive(),
+  /** Uploads for an internal note are internal from the first byte. */
+  visibility: z.enum(["PUBLIC", "INTERNAL"]).default("PUBLIC"),
+});
+export const attachmentIdSchema = z.object({ attachmentId: id });

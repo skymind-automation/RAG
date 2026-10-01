@@ -53,3 +53,14 @@ describe("scopeArgs", () => {
     expect(() => scopeArgs("Ticket", "someFutureOp", {}, ORG)).toThrow(TenantAccessError);
   });
 });
+
+describe("TENANT_MODELS", () => {
+  it("covers every Prisma model that has an organizationId column", async () => {
+    const { Prisma } = await import("@prisma/client");
+    const { TENANT_MODELS } = await import("@/lib/db/tenant");
+    const withOrg = Prisma.dmmf.datamodel.models
+      .filter((m) => m.fields.some((f) => f.name === "organizationId"))
+      .map((m) => m.name);
+    expect(withOrg.filter((m) => !TENANT_MODELS.has(m as never))).toEqual([]);
+  });
+});
