@@ -1,6 +1,6 @@
 import NextAuth from "next-auth";
 import { NextResponse } from "next/server";
-import { authConfig } from "@/server/auth/auth.config";
+import { PUBLIC_PATHS, authConfig } from "@/server/auth/auth.config";
 
 /**
  * Edge middleware: attaches a request id and redirects anonymous page
@@ -10,12 +10,10 @@ import { authConfig } from "@/server/auth/auth.config";
  */
 const { auth } = NextAuth(authConfig);
 
-const PUBLIC = [/^\/login$/, /^\/register$/, /^\/invite\/[^/]+$/, /^\/api\/auth\//, /^\/api\/health$/];
-
 export default auth((req) => {
   const requestId = req.headers.get("x-request-id") ?? crypto.randomUUID();
   const { pathname, search } = req.nextUrl;
-  const isPublic = PUBLIC.some((re) => re.test(pathname));
+  const isPublic = PUBLIC_PATHS.some((re) => re.test(pathname));
 
   if (!isPublic && !req.auth?.user) {
     if (pathname.startsWith("/api/")) {

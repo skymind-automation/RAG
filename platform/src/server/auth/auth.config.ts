@@ -14,7 +14,18 @@ import type { NextAuthConfig } from "next-auth";
 
 export const SESSION_MAX_AGE_SECONDS = 7 * 24 * 60 * 60;
 
-const PUBLIC_PATHS = [/^\/login$/, /^\/register$/, /^\/invite\/[^/]+$/, /^\/api\/auth\//, /^\/api\/health$/];
+/**
+ * Paths reachable without a session. /api/storage/local authenticates with
+ * its own signed token (like an S3 presigned URL).
+ */
+export const PUBLIC_PATHS: readonly RegExp[] = [
+  /^\/login$/,
+  /^\/register$/,
+  /^\/invite\/[^/]+$/,
+  /^\/api\/auth\//,
+  /^\/api\/health$/,
+  /^\/api\/storage\/local$/,
+];
 
 export const authConfig = {
   pages: { signIn: "/login" },
