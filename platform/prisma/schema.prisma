@@ -56,6 +56,7 @@ model User {
   watching         TicketWatcher[]
   attachments      Attachment[]
   commentMentions  CommentMention[]
+  timeEntries      TimeEntry[]
 
   @@map("users")
 }
@@ -95,6 +96,7 @@ model Organization {
   attachments         Attachment[]
   commentMentions     CommentMention[]
   customFields        CustomFieldDefinition[]
+  timeEntries         TimeEntry[]
 
   @@map("organizations")
 }
@@ -137,6 +139,7 @@ model OrganizationMembership {
   relationsCreated   TicketRelation[] @relation("RelationCreatorMembership")
   attachments        Attachment[]     @relation("AttachmentUploaderMembership")
   mentions           CommentMention[] @relation("MentionMembership")
+  timeEntries        TimeEntry[]      @relation("TimeEntryMembership")
 
   /// A removed member keeps their row (history, FKs from tickets) with
   /// status REMOVED; re-inviting reactivates the same row.
@@ -443,6 +446,7 @@ model Ticket {
   relationsOut        TicketRelation[]        @relation("RelationSource")
   relationsIn         TicketRelation[]        @relation("RelationTarget")
   attachments         Attachment[]
+  timeEntries         TimeEntry[]
 
   @@unique([organizationId, key])
   @@unique([organizationId, id])
@@ -630,4 +634,40 @@ model CustomFieldDefinition {
 
   @@unique([organizationId, key])
   @@map("custom_field_definitions")
+}
+
+// ──────────────────────────────────────────────────────────── work management ──
+
+enum TimeEntrySource {
+  TIMER
+  MANUAL
+}
+
+/// Time spent on a ticket. A running timer has `endedAt = NULL`; a partial
+/// unique index (migration) allows at most one running timer per user per
+/// organization, so overlapping timers are impossible even under races.
+model TimeEntry {
+  id              String          @id @default(cuid())
+  organizationId  String
+  ticketId        String
+  userId          String
+  description     String          @default("")
+  billable        Boolean         @default(false)
+  source          TimeEntrySource
+  startedAt       DateTime
+  endedAt         DateTime?
+  /// Set when the entry is closed (timer stopped or manual entry).
+  durationSeconds Int?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  deletedAt       DateTime?
+
+  organization Organization           @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  ticket       Ticket                 @relation(fields: [organizationId, ticketId], references: [organizationId, id], onDelete: Restrict)
+  user         User                   @relation(fields: [userId], references: [id], onDelete: Restrict)
+  membership   OrganizationMembership @relation("TimeEntryMembership", fields: [organizationId, userId], references: [organizationId, userId], onDelete: Restrict)
+
+  @@index([organizationId, ticketId, startedAt])
+  @@index([organizationId, userId, startedAt(sort: Desc)])
+  @@map("time_entries")
 }
