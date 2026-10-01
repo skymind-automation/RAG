@@ -48,3 +48,6 @@ next-env.d.ts
 
 # sandbox-only build helpers
 .sandbox-ca.crt
+
+# local attachment storage (dev/test)
+/.data/

@@ -19,7 +19,10 @@ import { resolveOrgContext } from "@/server/auth/resolve";
 import type { AuthContext, OrgContext } from "@/server/context";
 import { createOrganization, updateOrganization } from "@/server/organizations/organization-service";
 import { addTeamMember, createTeam } from "@/server/teams/team-service";
-import { addComment, createTicket, transitionTicket } from "@/server/tickets/ticket-service";
+import { addRelation } from "@/server/tickets/relation-service";
+import { createCustomField } from "@/server/tickets/ticket-config-service";
+import { addComment, createTicket, getTicket, transitionTicket, updateTicket } from "@/server/tickets/ticket-service";
+import { addWatcher } from "@/server/tickets/watcher-service";
 
 export const SEED_PASSWORD = "delta-demo-password";
 
@@ -590,6 +593,52 @@ async function seedOrg(spec: SeedOrg, users: Map<string, { id: string; email: st
   return ownerCtx;
 }
 
+/**
+ * Phase 2 features on top of the base data: custom fields, ticket links,
+ * @mentions and watchers — all through the services, so all audited.
+ */
+async function seedCollaboration(users: Map<string, { id: string; email: string; name: string }>) {
+  const ctx = (key: string, slug: string) => resolveOrgContext(authFor(users.get(key)!), slug);
+
+  // Delta: a depot field on incidents/requests, and an asset tag.
+  const maya = await ctx("maya", DELTA.slug);
+  await createCustomField(maya, {
+    label: "Depot",
+    type: "SELECT",
+    options: ["Memphis", "Dallas", "Head office"],
+    ticketTypes: ["INCIDENT", "SERVICE_REQUEST"],
+  });
+  await createCustomField(maya, { label: "Asset tag", type: "TEXT" });
+  const vpn = await getTicket(maya, "IT-000001");
+  await updateTicket(maya, { ticketId: vpn.id, expectedVersion: vpn.version, customFields: { depot: "Memphis" } });
+  const wifi = await getTicket(maya, "IT-000013");
+  await addRelation(maya, { ticketId: wifi.id, targetKey: "IT-000001", type: "RELATES_TO" });
+  const resets = await getTicket(maya, "IT-000017");
+  const mfa = await getTicket(maya, "IT-000003");
+  await addRelation(maya, { ticketId: mfa.id, targetKey: resets.key, type: "CAUSED_BY" });
+  const priya = await ctx("priya", DELTA.slug);
+  await addComment(priya, {
+    ticketId: vpn.id,
+    body: "@Omar Haddad can you check whether the IKE lifetime changed in last week's firewall push?",
+    visibility: "INTERNAL",
+    mentionUserIds: [users.get("omar")!.id],
+  });
+  await addWatcher(priya, { ticketId: vpn.id, userId: users.get("priya")!.id });
+
+  // Northwind: ward field required on incidents.
+  const daniel = await ctx("daniel", NORTHWIND.slug);
+  await createCustomField(daniel, { label: "Ward", type: "TEXT", ticketTypes: ["INCIDENT"] });
+  await createCustomField(daniel, { label: "Patient impacting", type: "CHECKBOX", ticketTypes: ["INCIDENT"] });
+  const ehr = await getTicket(daniel, "NWH-000005");
+  await updateTicket(daniel, {
+    ticketId: ehr.id,
+    expectedVersion: ehr.version,
+    customFields: { patient_impacting: true },
+  });
+  const badge = await getTicket(daniel, "NWH-000011");
+  await addRelation(daniel, { ticketId: ehr.id, targetKey: badge.key, type: "RELATES_TO" });
+}
+
 async function reset(): Promise<void> {
   const tables = await prisma.$queryRaw<{ tablename: string }[]>`
     SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND tablename <> '_prisma_migrations'`;
@@ -630,6 +679,7 @@ async function main(): Promise<void> {
       `  ✓ ${spec.name} (/o/${spec.slug}): ${spec.members.length + 1} members, ${spec.teams.length} teams, ${spec.tickets.length} tickets`,
     );
   }
+  await seedCollaboration(users);
   const [tickets, audits] = await Promise.all([prisma.ticket.count(), prisma.auditLog.count()]);
   console.log(`Seeded ${USERS.length} users, 2 organizations, ${tickets} tickets, ${audits} audit events.`);
   console.log(`Sign in as any seeded user (e.g. maya.chen@delta.example) with password: ${SEED_PASSWORD}`);

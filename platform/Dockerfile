@@ -31,6 +31,8 @@ RUN groupadd --system --gid 1001 app && useradd --system --uid 1001 --gid app ap
 COPY --from=builder --chown=app:app /app/public ./public
 COPY --from=builder --chown=app:app /app/.next/standalone ./
 COPY --from=builder --chown=app:app /app/.next/static ./.next/static
+# Writable mount point for the local attachment driver (evaluation only).
+RUN mkdir -p /app/.data/storage && chown -R app:app /app/.data
 USER app
 EXPOSE 3000
 HEALTHCHECK --interval=15s --timeout=5s --start-period=20s --retries=5 \
