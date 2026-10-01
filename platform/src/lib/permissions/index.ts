@@ -40,6 +40,10 @@ export const PERMISSIONS = [
   /** Categories, priorities, custom fields, numbering. */
   "tickets.configure",
   "workflows.manage",
+  /** Log time on tickets (timers and manual entries). */
+  "time.track",
+  /** Edit or delete other people's time entries. */
+  "time.manage",
   "reports.read",
   "sla.manage",
   "automation.manage",
@@ -73,6 +77,7 @@ const AGENT_PERMISSIONS: Permission[] = [
   "knowledge.read",
   "knowledge.write",
   "ai.use",
+  "time.track",
 ];
 
 export const ROLE_PERMISSIONS: Readonly<Record<Role, ReadonlySet<Permission>>> = {
@@ -86,6 +91,7 @@ export const ROLE_PERMISSIONS: Readonly<Record<Role, ReadonlySet<Permission>>> =
     "reports.read",
     "knowledge.publish",
     "ai.view_audit",
+    "time.manage",
   ]),
   AGENT: new Set(AGENT_PERMISSIONS),
   REQUESTER: new Set<Permission>([

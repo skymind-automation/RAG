@@ -47,6 +47,10 @@ export const AUDIT_ACTIONS = [
   "attachment.deleted",
   "ticket_config.updated",
   "workflow.updated",
+  "time.timer_started",
+  "time.timer_stopped",
+  "time.entry_logged",
+  "time.entry_deleted",
   "authorization.denied",
 ] as const;
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];

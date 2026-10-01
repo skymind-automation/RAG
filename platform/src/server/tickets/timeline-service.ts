@@ -47,6 +47,13 @@ function str(v: unknown): string {
   return typeof v === "string" ? v : "";
 }
 
+function minutes(v: unknown): string {
+  const s = typeof v === "number" ? v : 0;
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  return h > 0 ? `${h}h ${m}m` : `${m}m`;
+}
+
 function describe(action: string, m: Meta, names: Map<string, string>): string | null {
   const who = (id: unknown) => (typeof id === "string" ? (names.get(id) ?? "a former member") : "nobody");
   switch (action) {
@@ -76,6 +83,14 @@ function describe(action: string, m: Meta, names: Map<string, string>): string |
       return `removed the file ${str(m.fileName)}`;
     case "attachment.quarantined":
       return `had ${str(m.fileName)} quarantined by the malware scanner`;
+    case "time.timer_started":
+      return "started a timer";
+    case "time.timer_stopped":
+      return `stopped a timer after ${minutes(m.durationSeconds)}${m.capped ? " (capped at 24h)" : ""}`;
+    case "time.entry_logged":
+      return `logged ${minutes(m.durationSeconds)}${m.billable ? " (billable)" : ""}`;
+    case "time.entry_deleted":
+      return `removed a time entry of ${minutes(m.durationSeconds)}`;
     case "ticket.deleted":
       return "deleted the ticket";
     default:

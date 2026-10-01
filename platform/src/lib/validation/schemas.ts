@@ -125,6 +125,16 @@ export const teamMemberSchema = z.object({
 
 export const TICKET_TYPES = ["INCIDENT", "SERVICE_REQUEST", "PROBLEM", "CHANGE", "TASK", "QUESTION"] as const;
 
+/**
+ * A due date is either a calendar date ("2026-10-05", meaning the end of that
+ * day in the organization's time zone, resolved by the service) or an exact
+ * ISO instant.
+ */
+export const dueDateSchema = z.union([
+  z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use a date like 2026-10-05."),
+  z.coerce.date(),
+]);
+
 export const createTicketSchema = z.object({
   type: z.enum(TICKET_TYPES),
   title: z.string().trim().min(3, "Use at least 3 characters.").max(200),
@@ -136,7 +146,7 @@ export const createTicketSchema = z.object({
   /** Agents may file on behalf of a requester; requesters always file for themselves. */
   requesterId: z.string().min(1).optional(),
   source: z.enum(["AGENT", "PORTAL", "EMAIL", "API"]).default("AGENT"),
-  dueAt: z.coerce.date().optional(),
+  dueAt: dueDateSchema.optional(),
   /** Validated against the organization's CustomFieldDefinitions server-side. */
   customFields: z.record(z.unknown()).default({}),
 });
@@ -155,7 +165,7 @@ export const updateTicketSchema = z.object({
   priorityKey: z.string().min(1).max(40).optional(),
   categoryId: id.nullable().optional(),
   teamId: id.nullable().optional(),
-  dueAt: z.coerce.date().nullable().optional(),
+  dueAt: dueDateSchema.nullable().optional(),
   customFields: z.record(z.unknown()).optional(),
 });
 export type UpdateTicketInput = z.input<typeof updateTicketSchema>;
@@ -284,3 +294,46 @@ export const requestUploadSchema = z.object({
   visibility: z.enum(["PUBLIC", "INTERNAL"]).default("PUBLIC"),
 });
 export const attachmentIdSchema = z.object({ attachmentId: id });
+
+// ── Time tracking ──────────────────────────────────────────────────────────
+
+export const startTimerSchema = z.object({
+  ticketId: id,
+  description: z.string().trim().max(500).default(""),
+  billable: z.boolean().default(false),
+  /** Stop the caller's running timer (if any) in the same transaction. */
+  switchFromRunning: z.boolean().default(false),
+});
+
+export const logTimeSchema = z.object({
+  ticketId: id,
+  /** Whole minutes, 1 minute to 24 hours. */
+  minutes: z.coerce
+    .number()
+    .int()
+    .min(1, "Log at least 1 minute.")
+    .max(24 * 60, "Log at most 24 hours per entry."),
+  /** When the work started; defaults to now minus the duration. */
+  startedAt: z.coerce.date().optional(),
+  description: z.string().trim().max(500).default(""),
+  billable: z.boolean().default(false),
+});
+
+export const timeEntryIdSchema = z.object({ timeEntryId: id });
+
+// ── Boards ─────────────────────────────────────────────────────────────────
+
+export const boardFilterSchema = z.object({
+  teamId: id.optional(),
+  /** A user id, "me", or "unassigned". */
+  assigneeId: z.string().min(1).max(64).optional(),
+  priorityKey: z.string().min(1).max(40).optional(),
+  type: z.enum(TICKET_TYPES).optional(),
+});
+
+export const moveTicketSchema = z.object({
+  ticketId: id,
+  expectedVersion,
+  toCategory: z.enum(["NEW", "OPEN", "IN_PROGRESS", "PENDING", "RESOLVED"]),
+  resolution: z.string().trim().max(10_000).optional(),
+});
