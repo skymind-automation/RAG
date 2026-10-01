@@ -3,6 +3,7 @@ import {
   BookOpen,
   Bot,
   Building2,
+  SlidersHorizontal,
   ClipboardList,
   Columns3,
   Gauge,
@@ -22,6 +23,8 @@ export interface NavItem {
   anyOf?: Permission[];
   /** Planned; rendered disabled so the information architecture is visible. */
   comingIn?: string;
+  /** Highlight only on an exact path match (for parents of other nav items). */
+  exact?: boolean;
 }
 
 export const PRIMARY_NAV: NavItem[] = [
@@ -37,6 +40,12 @@ export const PRIMARY_NAV: NavItem[] = [
 
 export const ORG_NAV: NavItem[] = [
   { label: "Members", href: "/members", icon: Users, anyOf: ["members.read"] },
-  { label: "Settings", href: "/settings", icon: Building2, anyOf: ["organization.update"] },
+  { label: "Settings", href: "/settings", icon: Building2, anyOf: ["organization.update"], exact: true },
+  {
+    label: "Ticket settings",
+    href: "/settings/tickets",
+    icon: SlidersHorizontal,
+    anyOf: ["tickets.configure", "workflows.manage"],
+  },
   { label: "Audit log", href: "/audit", icon: ScrollText, anyOf: ["audit.read"] },
 ];

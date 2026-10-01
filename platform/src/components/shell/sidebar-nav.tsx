@@ -21,7 +21,7 @@ function NavList({ items, base, label }: { items: NavItem[]; base: string; label
       <ul className="grid gap-0.5">
         {items.map((item) => {
           const href = `${base}${item.href}`;
-          const active = item.href === "" ? pathname === base : pathname.startsWith(href);
+          const active = item.href === "" || item.exact ? pathname === href : pathname.startsWith(href);
           const Icon = item.icon;
           if (item.comingIn) {
             return (

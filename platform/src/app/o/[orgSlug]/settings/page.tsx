@@ -21,7 +21,12 @@ export default async function SettingsPage({ params }: { params: Promise<{ orgSl
           <OrgSettingsForm
             orgSlug={orgSlug}
             padding={org.ticketNumberPadding}
-            initial={{ name: org.name, timezone: org.timezone, ticketPrefix: org.ticketPrefix }}
+            initial={{
+              name: org.name,
+              timezone: org.timezone,
+              ticketPrefix: org.ticketPrefix,
+              ticketNumberPadding: org.ticketNumberPadding,
+            }}
           />
         </CardContent>
       </Card>

@@ -44,6 +44,11 @@ export default defineConfig({
       // In-memory rate limiting: runs are independent of any shared Redis.
       REDIS_URL: "",
       TRUST_PROXY: "0",
+      // Attachments go to a throwaway local directory through the signed
+      // local-storage endpoint (refused in production unless allowed).
+      STORAGE_DRIVER: "local",
+      STORAGE_ALLOW_LOCAL: "1",
+      LOCAL_STORAGE_DIR: `${process.env.TMPDIR ?? "/tmp"}/itsm-e2e-storage`,
       NODE_ENV: "production",
       // The E2E database is disposable; allow the seed under NODE_ENV=production.
       SEED_ALLOW_PRODUCTION: "1",
