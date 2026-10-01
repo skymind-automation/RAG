@@ -4,7 +4,7 @@ Multi-organization IT service management (incidents, requests, problems,
 changes, tasks) with a tenant-isolated AI/RAG layer, built on Next.js 15,
 PostgreSQL + pgvector, Prisma, Auth.js and Redis.
 
-> **Status: Phase 1 (Foundation) complete; initial ticket domain in place.**
+> **Status: Phase 1 (Foundation) and Phase 2 (Core ITSM) complete.**
 > What exists is built and tested end to end. Everything else in the
 > [roadmap](#roadmap) is designed for but not built. The sidebar shows planned
 > areas as disabled "Soon" items rather than dead links.
@@ -42,10 +42,25 @@ Deep dives live in [`docs/`](docs): [architecture](docs/architecture.md),
 | Immutable audit log (DB-enforced) with UI | `src/server/audit`, `/o/<slug>/audit` |
 | Prisma migrations with DB-level tenant FKs | `prisma/` |
 | Docker Compose (Postgres+pgvector, Redis, migrations, app) | `docker-compose.yml` |
-| Automated isolation/authz tests | `tests/` (26 unit, 55 integration, 8 E2E) |
-| Seed: 2 orgs, 12 users, all roles, 5 teams, 36 tickets | `prisma/seed/seed.ts` |
+| Automated isolation/authz tests | `tests/` (38 unit, 88 integration, 14 E2E) |
+| Seed: 2 orgs, 12 users, all roles, 5 teams, 36 tickets, custom fields, links, mentions | `prisma/seed/seed.ts` |
 | Authenticated dashboard | `/o/<slug>` |
-| Initial ticket domain: numbering, configurable workflow, transitions, assignment, comments, internal notes, watchers | `src/server/tickets` (+ read-only list UI) |
+
+**Phase 2: Core ITSM**
+
+| Capability | Where |
+| --- | --- |
+| Ticket CRUD: create (agent form and requester portal), partial edit, soft delete | `ticket-service.ts`, `/tickets/new`, `/tickets/<KEY>` |
+| Per-org numbering with configurable prefix and digit count | `ticket-numbering.ts`, Settings |
+| Configurable workflow: add/rename statuses, transition matrix, "requires resolution" | `ticket-config-service.ts`, `/settings/tickets` |
+| Priorities (rename, colour, default), categories (create, archive) | same |
+| Custom fields (text, number, select, date, checkbox), per type, required, validated server-side | `custom-fields.ts` |
+| Assignment, watchers (self-watch; staff manage others) | `ticket-service.ts`, `watcher-service.ts` |
+| Comments: public replies and internal notes, Markdown, @mentions, attachments | `addComment`, `comment-composer.tsx` |
+| Attachments: S3/R2 presigned upload/download, type/size/extension validation, malware-scan hook, internal visibility | `src/server/attachments`, `src/lib/storage` |
+| Related tickets (relates to, duplicates, blocks, caused by) | `relation-service.ts` |
+| Activity timeline merged from comments and the audit log, filtered per audience | `timeline-service.ts` |
+| Ticket list with URL-driven filters (state, assignee, priority, type, team, search) | `/tickets` |
 
 ## Quick start
 
@@ -90,10 +105,11 @@ for the full annotated list. Required today:
 | `AUTH_SECRET` | Signs/encrypts session tokens. 32+ random bytes |
 | `AUTH_URL` | Public origin; also used to build invitation links |
 | `REDIS_URL` | Rate limiting (falls back to in-process when unset) |
+| `STORAGE_DRIVER` | `s3` (S3/R2/MinIO via `S3_*`) or `local` (development only) |
 
-Storage, AI and email variables are declared now so deployments are
-provisioned consistently, and are consumed from the phases that introduce
-those subsystems. Only `NEXT_PUBLIC_*` values reach the browser; no secret
+AI and email variables are declared now so deployments are provisioned
+consistently, and are consumed from the phases that introduce those
+subsystems. Only `NEXT_PUBLIC_*` values reach the browser; no secret
 uses that prefix.
 
 ## Database, migrations and seed
@@ -181,7 +197,13 @@ per-organization and configurable, but each maps to a fixed **category**
 (`NEW…CLOSED`) that boards, SLAs and reports rely on. Transitions go through
 `transitionTicket()` only, which validates the workflow, required resolution
 and optimistic concurrency (`version`), then audits. Internal notes are
-filtered in the query for anyone without `tickets.read_internal`.
+filtered in the query for anyone without `tickets.read_internal`, and so are
+internal attachments and staff-only timeline events (assignment, links,
+watchers). Requesters see public replies, creation and status changes only.
+Custom-field values are JSON on the ticket, validated against the
+organization's definitions on every write ([ADR-0012](docs/decisions/0012-custom-fields-as-validated-json.md)).
+Files go browser ↔ storage directly via short-lived presigned URLs, issued only
+after authorization ([ADR-0010](docs/decisions/0010-attachments-via-presigned-urls.md)).
 [ADR-0007](docs/decisions/0007-configurable-workflows-with-status-categories.md),
 [ADR-0008](docs/decisions/0008-ticket-numbering.md).
 
@@ -200,8 +222,14 @@ requesters never receive internal notes; viewers can't administer; role
 escalation is blocked; the last owner is protected; removed members lose
 access on their next request; sessions are revocable; invitations are
 email-bound, single-use and expiring; audit rows can't be updated or deleted;
-ticket numbers are unique under 20-way concurrency. Future search, embedding,
-attachment and AI-history isolation tests arrive with those subsystems.
+ticket numbers are unique under 20-way concurrency. Phase 2 adds: Org A
+cannot upload to, list, download or delete Org B's files, resolve Org B's
+ticket keys when linking, or mention Org B's users; internal files, notes and
+staff-only events never reach requesters; mentions only reach people who can
+read the comment; uploads must match the signed type and size; quarantined and
+pending files are never served. A unit test fails if any model with an
+`organizationId` is missing from the scoped client. Search, embedding and
+AI-history isolation tests arrive with those subsystems.
 
 ## Deployment
 
@@ -218,7 +246,7 @@ and docs.
 | Phase | Scope | State |
 | --- | --- | --- |
 | 1 Foundation | auth, orgs, memberships, roles, tenant-safe services, audit, tests, Docker | **done** |
-| 2 Core ITSM | ticket UI (create/detail/timeline), categories, relations, attachments (S3 presigned), watchers UI | domain model + services done; UI next |
+| 2 Core ITSM | ticket CRUD and UI, workflow/priority/category/custom-field admin, comments, internal notes, mentions, attachments, relations, watchers, timeline | **done** |
 | 3 Work management | My Work, Kanban (with keyboard alternative to drag-and-drop), time tracking | planned |
 | 4 SLA & notifications | business hours/holidays, SLA engine, BullMQ jobs, email providers, SSE | planned |
 | 5 Knowledge | articles, versions, lifecycle, FTS | planned |
@@ -238,5 +266,8 @@ and docs.
   per IP per 15 min). Wait, or clear `rl:*` keys in Redis.
 - **Playwright can't find a browser:** set `PLAYWRIGHT_CHROMIUM_EXECUTABLE`
   or run `npx playwright install chromium`.
+- **Uploads fail with S3/R2 but work locally:** the bucket needs a CORS rule
+  allowing `PUT` from your app origin with the `Content-Type` header (see
+  deployment.md). The URL is signed for one content type and exact size.
 - **A page you expect returns 404:** by design for non-members *and* for
   members lacking the page's permission. Check the role in the org switcher.

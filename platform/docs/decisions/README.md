@@ -14,3 +14,6 @@ Superseded ADRs stay, marked as superseded.
 | [0007](0007-configurable-workflows-with-status-categories.md) | Per-org configurable workflows whose statuses map to fixed categories |
 | [0008](0008-ticket-numbering.md) | Gap-free per-org ticket numbering via an upserted counter row |
 | [0009](0009-append-only-audit-log.md) | Append-only audit log enforced by trigger, written in-transaction |
+| [0010](0010-attachments-via-presigned-urls.md) | Attachments via presigned URLs; HMAC-signed local driver for development |
+| [0011](0011-timeline-from-audit-log.md) | Activity timeline derived from the audit log |
+| [0012](0012-custom-fields-as-validated-json.md) | Custom fields as JSON validated against per-org definitions |

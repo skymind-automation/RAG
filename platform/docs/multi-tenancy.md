@@ -40,6 +40,10 @@ This layer is load-bearing, not decorative. Services rely on it for filters
 like "the initial status of the default workflow". Mutation test: replacing
 the guard with a pass-through fails all 18 isolation tests.
 
+A unit test enumerates every Prisma model with an `organizationId` column and
+fails if any is missing from `TENANT_MODELS`, so a new table can't silently
+bypass the guard.
+
 Not covered: `$queryRaw`. The two raw queries today
 (`allocateTicketNumber`, `lockActiveOwners`) take `organizationId` as an
 explicit bound parameter. Raw SQL on tenant tables must do the same, and is
@@ -54,6 +58,10 @@ pair:
   memberships (so only members, past or present, can appear on a ticket)
 - comments, watchers → ticket and member; team memberships → team and
   membership; workflow transitions/statuses → workflow
+- ticket relations → both tickets; attachments → ticket, optional comment
+  and uploader; comment mentions → comment and member
+- attachment storage keys must start with `org/<the row's organizationId>/`
+  (CHECK constraint)
 
 A row in Org A pointing at Org B's row is unrepresentable. The integration
 suite proves this with the **raw, unscoped** client.
@@ -89,5 +97,5 @@ Row-level rules on top of tenancy, enforced in queries:
 - Carry `organizationId` in every job payload and rebuild the context in the
   worker; never trust a job to "already be scoped".
 - Namespace SSE channels and cache keys by organization.
-- Store attachments under `org/<organizationId>/…` and check authorization
-  before issuing any presigned URL.
+- Attachments (done in Phase 2): stored under `org/<organizationId>/…`,
+  authorization re-derived before every presigned URL.

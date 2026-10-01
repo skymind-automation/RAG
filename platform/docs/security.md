@@ -41,6 +41,30 @@ re-checks every action. The middleware is not a security boundary.
 redeemed by another account), superseded by re-invites. The accept page
 sets `Referrer-Policy: no-referrer`.
 
+## Attachments
+
+See [ADR-0010](decisions/0010-attachments-via-presigned-urls.md). In short:
+- **Allowlist:** extension plus matching MIME. Executable and
+  active-content types are rejected (html, svg, js, exe…).
+- **Limits:** size (25 MB default), 100 files per ticket, sanitized names.
+- **Upload URLs** last 5 minutes and sign the type and size. Confirmation
+  HEADs the object and discards mismatches.
+- **Download URLs** last 60 seconds, force `attachment` disposition, and are
+  served with `nosniff` and a sandbox CSP on the local driver. Each issue is
+  audited, and authorization is re-derived each time.
+- **Visibility:** internal files are filtered in queries for anyone without
+  `tickets.read_internal`.
+- **Scan hook:** quarantined and pending-scan files are never downloadable.
+
+## User content
+
+Markdown is rendered without raw HTML, dangerous URL schemes are stripped,
+links get `rel="noopener noreferrer nofollow"`, and remote images are not
+loaded (a placeholder is shown), so a comment can't become a tracking pixel.
+@mentions are validated server-side: only active members who can read that
+comment can be mentioned, so a mention can't be used to expose an internal
+note or another requester's ticket.
+
 ## Audit
 
 Append-only `audit_logs`: a `BEFORE UPDATE OR DELETE` trigger raises for
@@ -53,8 +77,10 @@ or hold `TRUNCATE` (see deployment.md).
 
 Audited today: registration, login success/failure, organization
 create/update/switch, invitations (create/revoke/accept), role changes,
-removals, team changes, ticket create/status/assignment/comment, and
-authorization denials. AI events join in Phase 7.
+removals, team changes, ticket create/update/delete/status/assignment/
+priority/comment, watchers, links, attachment request/upload/download/delete/
+quarantine, ticket and workflow configuration changes, and authorization
+denials. AI events join in Phase 7.
 
 ## Transport and headers
 

@@ -23,6 +23,25 @@ mode, with `?pgbouncer=true`) and `DIRECT_DATABASE_URL` to the direct URL.
 Middleware runs on the Edge runtime and uses only the edge-safe Auth.js
 config. Everything touching the database runs on Node.
 
+## Object storage (attachments)
+
+Set `STORAGE_DRIVER=s3` and `S3_BUCKET`, `S3_REGION`, `S3_ACCESS_KEY_ID`,
+`S3_SECRET_ACCESS_KEY`. For Cloudflare R2, also set
+`S3_ENDPOINT=https://<account>.r2.cloudflarestorage.com` and
+`S3_REGION=auto`. The bucket must be **private** (no public read). Browsers
+upload directly, so add a CORS rule:
+
+```json
+[{ "AllowedOrigins": ["https://itsm.example.com"], "AllowedMethods": ["PUT", "GET"],
+   "AllowedHeaders": ["Content-Type"], "MaxAgeSeconds": 3000 }]
+```
+
+Grant the access key only `s3:PutObject`, `s3:GetObject`, `s3:DeleteObject`
+and `s3:HeadObject` (via `GetObject`) on `arn:aws:s3:::<bucket>/org/*`.
+To add malware scanning, implement `MalwareScanner` (for example a ClamAV
+sidecar or GuardDuty Malware Protection for S3) and register it in
+`src/lib/storage/scanner.ts`.
+
 ## Database roles (recommended)
 
 - `itsm_owner`: owns the schema, runs migrations.
@@ -46,9 +65,12 @@ config. Everything touching the database runs on Node.
 The app waits for `migrate` to complete successfully. Demo data:
 `docker compose run --rm migrate npm run db:seed`.
 
-Verified during Phase 1 development: images built, all four services
-healthy, migrations applied, seed ran, login and pages served from the
-container.
+Verified during development: images built, all four services healthy,
+migrations applied, seed ran, login and pages served from the container, and
+an attachment uploaded and downloaded through the container (Phase 2).
+The Compose stack stores attachments on a local volume
+(`STORAGE_DRIVER=local`, `STORAGE_ALLOW_LOCAL=1`). Set the `S3_*` variables
+and `STORAGE_DRIVER=s3` to use a bucket instead.
 
 ## Backups and retention
 

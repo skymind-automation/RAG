@@ -45,12 +45,15 @@ Consequences:
 | OrganizationService | `server/organizations/organization-service.ts` | create (+ defaults), list mine, switch, settings |
 | MembershipService | `server/memberships/membership-service.ts` | list, invite/revoke/accept, change role, remove/leave |
 | TeamService | `server/teams/team-service.ts` | teams and team membership |
-| TicketService | `server/tickets/ticket-service.ts` | create (numbering), list (cursor), get, transitions, assignment, comments |
+| TicketService | `server/tickets/ticket-service.ts` | create, list (cursor + filters), get, update, soft delete, transitions, assignment, comments (mentions, attachments) |
+| Ticket collaboration | `server/tickets/{watcher,relation,timeline}-service.ts` | watchers, related tickets, activity timeline |
+| Ticket configuration | `server/tickets/ticket-config-service.ts`, `custom-fields.ts` | categories, priorities, workflow statuses/transitions, custom fields |
+| AttachmentService | `server/attachments/attachment-service.ts` + `lib/storage` | presigned upload/confirm/download, validation, scan hook |
 | AuditService | `server/audit/*` | append-only writes in-transaction; tenant-scoped reads |
 | PermissionService | `lib/permissions` + `server/auth/resolve.ts` | role→permission map, grant rules, checks |
 
 Planned (per spec): SLAService, BusinessHoursService, NotificationService,
-SearchService, AttachmentService, RAGService, AIService.
+SearchService, RAGService, AIService.
 
 ## Request lifecycle (server action)
 
