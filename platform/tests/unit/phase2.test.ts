@@ -97,7 +97,9 @@ describe("local storage tokens", () => {
       "base64url",
     );
     expect(decodeLocalToken(`${forged}.${sig}`)).toBeNull();
-    expect(decodeLocalToken(`${payload}.${sig!.slice(0, -1)}A`)).toBeNull();
+    // Always a different last character: a fixed "A" was a no-op whenever the signature already ended in "A".
+    const flipped = sig!.endsWith("A") ? "B" : "A";
+    expect(decodeLocalToken(`${payload}.${sig!.slice(0, -1)}${flipped}`)).toBeNull();
     expect(decodeLocalToken(encodeLocalToken({ k: key, op: "get", exp: 1, ct: "text/plain" }))).toBeNull();
     expect(decodeLocalToken(encodeLocalToken({ k: "../../etc/passwd", op: "get", exp, ct: "text/plain" }))).toBeNull();
   });
