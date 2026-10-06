@@ -1,5 +1,11 @@
 # Delta RAG — fleet maintenance retrieval
 
+> **Repository layout.** This repository holds two independent systems:
+> the Delta RAG retrieval service described below (Django, repository root),
+> and the **Delta ITSM platform** (Next.js multi-tenant IT service
+> management) in [`platform/`](platform/README.md). They share no runtime
+> state; see [ADR-0001](platform/docs/decisions/0001-platform-alongside-delta-rag.md).
+
 Retrieval backend for the Delta RAG system, scoped to the **service reception /
 service advisor** path described in the Notion working doc: semi-structured
 content (OEM manuals, service bulletins, DTC tables) answering lookup,
